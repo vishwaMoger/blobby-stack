@@ -8,7 +8,7 @@ namespace StackJump
         const int Rate = 44100;
 
         AudioSource source, pitched;
-        AudioClip jump, land, chime, hit, click, whoosh;
+        AudioClip jump, land, chime, hit, click, whoosh, coin, fanfare;
 
         public void Init()
         {
@@ -23,7 +23,12 @@ namespace StackJump
             click = Tone("click", 0.05f, 1100f, 900f, 0f, 0.5f, 0.25f);
             whoosh = Tone("whoosh", 0.9f, 200f, 900f, 0.85f, 0f, 0.3f, true);
             chime = Arpeggio("chime", new[] { 1046.5f, 1318.5f, 1568f, 2093f }, 0.065f, 0.3f);
+            coin = Arpeggio("coin", new[] { 1975.5f, 2637f }, 0.06f, 0.28f);
+            fanfare = Arpeggio("fanfare", new[] { 523.3f, 659.3f, 784f, 1046.5f, 784f, 1046.5f }, 0.11f, 0.32f);
         }
+
+        public void Coin() => source.PlayOneShot(coin, 0.8f);
+        public void Fanfare() => source.PlayOneShot(fanfare, 0.9f);
 
         public void Jump() => source.PlayOneShot(jump, 0.8f);
         public void Land() => source.PlayOneShot(land, 0.9f);

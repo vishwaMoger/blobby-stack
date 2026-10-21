@@ -7,7 +7,7 @@ namespace StackJump
     // scattered around it. World-fixed at the origin, so it drops out of view as the tower climbs.
     public static class Ground
     {
-        public static Transform Build(WorldTheme th)
+        public static Transform Build(WorldTheme th, float[] pedestals)
         {
             var root = new GameObject("Ground " + th.Name).transform;
             var rng = new System.Random(th.Seed * 31);
@@ -31,7 +31,13 @@ namespace StackJump
             };
             Mats.SetPattern(floor, floorPattern, th.GroundAlt, patternScale);
 
-            Pedestal(root, th, rng);
+            foreach (float x in pedestals)
+            {
+                var spot = new GameObject("Pedestal").transform;
+                spot.SetParent(root, false);
+                spot.localPosition = new Vector3(x, 0, 0);
+                Pedestal(spot, th, rng);
+            }
             switch (th.Kind)
             {
                 case WorldKind.Cosmos: CosmosProps(root, th, rng); break;

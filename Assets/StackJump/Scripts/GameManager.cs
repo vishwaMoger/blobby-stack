@@ -2,49 +2,44 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
+using UnityEngine.Rendering.Universal;
 
 namespace StackJump
 {
-    // Game loop: blocks slide in from the sides and the player taps to hop over them. A cleared
-    // block stops where the timing puts it (dead center = PERFECT), so the tower grows uneven.
-    // Getting hit ends the run (one rewarded revive per run). Worlds change every 20 blocks.
+    // Runs the game modes on top of Lanes:
+    //  Classic  - endless climb; worlds change every 20 blocks; one rewarded revive per run.
+    //  Daily    - today's seeded tower (same for everyone), with a goal and a once-a-day bonus.
+    //  Versus   - local 2-player race on a split screen; last one standing (or higher) wins.
+    // Also handles coins, the character shop and the daily login reward.
     [DefaultExecutionOrder(100)]
     public class GameManager : MonoBehaviour
     {
-        enum State { Boot, Menu, Playing, Dying, GameOver, Busy }
-
-        class Incoming
-        {
-            public GameObject Go;
-            public float X, Dir, Speed, Target;
-            public bool Passed, Perfect;
-        }
+        enum State { Boot, Menu, Playing, Ending, Result, Busy }
+        enum Mode { Classic, Daily, Versus }
 
         const int BlocksPerWorld = 20;
-        const float PerfectWindow = 0.14f;
-        const float MaxOffset = 0.34f;
-        const float Contact = Tower.BlockSize * 0.5f + Player.Radius;
+        const float VersusOffset = 2.6f;
+        const float CountdownTime = 3f;
+        int countdownShown;
 
-        Camera cam;
-        CameraRig rig;
+        Camera cam, cam2;
+        CameraRig rig, rig2;
         Scenery scenery;
-        Tower tower;
-        Player player;
         GameUI ui;
         Fx fx;
         Sfx sfx;
-        Transform frame, shadow;
-        Material frameMat;
+        Lane solo, p1, p2;
 
         State state = State.Boot;
-        int score, streak, charIndex, world, startWorld, runs;
-        bool revived;
-        float stateTime, spawnTimer;
-        Incoming incoming;
-        bool autoplay; // test hook: ?autoplay&world=N in the page URL
-        float autoLead = 0.1f;
-        bool soak; // with autoplay: never miss, to climb through every world
+        Mode mode;
+        int charIndex, world, startWorld, runs, runCoins;
+        bool revived, dailyJustDone;
+        float stateTime;
+
+        // Test hooks: ?autoplay&soak&world=N&mode=daily|versus in the page URL.
+        bool autoplay, soak;
         int forcedWorld = -1;
+        string forcedMode = "";
 
         WorldTheme Theme => Themes.All[world];
         CharacterDef Char => Characters.All[charIndex];
@@ -66,42 +61,24 @@ namespace StackJump
             scenery.Init(cam, FindFirstObjectByType<Light>());
             rig = cam.GetComponent<CameraRig>();
             if (rig == null) rig = cam.gameObject.AddComponent<CameraRig>();
-            tower = new GameObject("Tower").AddComponent<Tower>();
+            CreateSecondCamera();
+
             fx = gameObject.AddComponent<Fx>();
             fx.Init();
             sfx = gameObject.AddComponent<Sfx>();
             sfx.Init();
             ui = gameObject.AddComponent<GameUI>();
             ui.Init();
-            ui.OnPlay = StartPlaying;
-            ui.OnPrevChar = () => CycleChar(-1);
-            ui.OnNextChar = () => CycleChar(1);
-            ui.OnPrevWorld = () => CycleWorld(-1);
-            ui.OnNextWorld = () => CycleWorld(1);
-            ui.OnRevive = Revive;
-            ui.OnRetry = Retry;
-            ui.OnHome = () => { sfx.Click(); EnterMenu(); };
-            ui.OnSound = ToggleSound;
+            WireUI();
 
-            player = new GameObject("Player").AddComponent<Player>();
-            player.Init(SupportY, OnLanded);
-
-            frameMat = Mats.MakeUnlit(UnityEngine.Rendering.BlendMode.SrcAlpha, UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha, false, 3000, 0f, null, new Color(1, 1, 1, 0.6f));
-            var f = new GameObject("Frame");
-            Mats.AddRenderer(f, MeshFactory.Frame(Tower.BlockSize + 0.2f, 0.04f), frameMat);
-            frame = f.transform;
-            var sh = new GameObject("Shadow");
-            Mats.AddRenderer(sh, MeshFactory.FloorQuad(), Mats.MakeUnlit(UnityEngine.Rendering.BlendMode.SrcAlpha, UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha, false, 2990, 0f, Tex.Soft, new Color(0.05f, 0.02f, 0.12f, 0.3f)));
-            shadow = sh.transform;
+            solo = MakeLane("Solo", 0f, rig);
+            p1 = MakeLane("P1", -VersusOffset, rig);
+            p2 = MakeLane("P2", VersusOffset, rig2);
 
             ReadTestParams();
             world = Mathf.Max(0, forcedWorld);
             scenery.SetWorld(Theme, true);
-            scenery.SetGround(Theme);
-            tower.Add(tower.CreateBlock(Theme, 0));
-            player.SetCharacter(Characters.All[0], false);
-            player.ResetTo(tower.TopY);
-            rig.Snap(tower.TopY);
+            ShowSoloLane(Characters.All[0], false);
         }
 
         void Start() => Platform.Init(Boot);
@@ -111,55 +88,128 @@ namespace StackJump
             Platform.LoadAudioPref();
             ui.SetMuted(Platform.UserMuted);
             charIndex = Mathf.Clamp(Save.Character, 0, Characters.All.Length - 1);
-            if (!Char.IsUnlocked(Save.Best)) charIndex = 0;
+            if (!Economy.Owns(charIndex)) charIndex = 0;
             startWorld = forcedWorld >= 0 ? forcedWorld : Mathf.Clamp(Save.World, 0, Mathf.Min(Save.MaxWorld, Themes.All.Length - 1));
             EnterMenu();
+            if (Daily.RewardAvailable && !autoplay) ShowDailyReward();
         }
 
-        // ---------- States ----------
-
-        void ResetRun()
+        void CreateSecondCamera()
         {
-            if (incoming != null) Destroy(incoming.Go);
-            incoming = null;
-            tower.Clear();
-            if (world != startWorld)
-            {
-                world = startWorld;
-                scenery.SetWorld(Theme, false);
-            }
-            scenery.SetGround(Theme);
-            tower.Add(tower.CreateBlock(Theme, 0));
-            player.ResetTo(tower.TopY);
-            player.LookAt(0f);
-            rig.Snap(tower.TopY);
-            score = 0;
-            streak = 0;
-            revived = false;
+            var go = new GameObject("Camera P2");
+            cam2 = go.AddComponent<Camera>();
+            cam2.CopyFrom(cam);
+            var data = cam2.GetUniversalAdditionalCameraData();
+            data.renderPostProcessing = true;
+            data.renderShadows = true;
+            rig2 = go.AddComponent<CameraRig>();
+            scenery.AddCamera(cam2);
+            cam2.enabled = false;
         }
+
+        Lane MakeLane(string name, float x, CameraRig laneRig)
+        {
+            var lane = new Lane(name, x, laneRig, () => Theme);
+            lane.Jumped += _ => sfx.Jump();
+            lane.Landed += l =>
+            {
+                sfx.Land();
+                fx.Dust(l.Player.transform.position, Color.Lerp(scenery.Current.Fog, Color.white, 0.5f));
+            };
+            lane.Passed += OnPassed;
+            lane.Hit += OnHit;
+            lane.Settled += OnSettled;
+            lane.CoinCollected += l =>
+            {
+                sfx.Coin();
+                ui.PopupAt(l.Rig.Cam, l.Player.transform.position + new Vector3(-1.1f, 1.2f, 0), "+" + Economy.CoinPickup, GameUI.Gold);
+                fx.Sparkle(l.Player.transform.position + Vector3.up * 0.9f, GameUI.Gold, 16);
+                if (l == solo) ui.SetRunCoins(l.Coins);
+            };
+            lane.SetVisible(false);
+            return lane;
+        }
+
+        void WireUI()
+        {
+            ui.OnPlay = OnPlayPressed;
+            ui.OnDaily = () => { sfx.Click(); StartRun(Mode.Daily); };
+            ui.OnVersus = () => { sfx.Click(); StartVersus(); };
+            ui.OnPrevChar = () => CycleChar(-1);
+            ui.OnNextChar = () => CycleChar(1);
+            ui.OnPrevWorld = () => CycleWorld(-1);
+            ui.OnNextWorld = () => CycleWorld(1);
+            ui.OnRevive = Revive;
+            ui.OnRetry = Retry;
+            ui.OnRematch = Rematch;
+            ui.OnDoubleCoins = DoubleCoins;
+            ui.OnHome = () => { sfx.Click(); EnterMenu(); };
+            ui.OnSound = ToggleSound;
+            ui.OnGift = () =>
+            {
+                sfx.Click();
+                if (Daily.RewardAvailable) ShowDailyReward();
+                else ui.Banner("COME BACK TOMORROW!");
+            };
+            ui.OnClaim = ClaimDailyReward;
+        }
+
+        // ---------- Lanes and cameras ----------
+
+        void SetSplit(bool split)
+        {
+            cam.rect = split ? new Rect(0f, 0f, 0.5f, 1f) : new Rect(0f, 0f, 1f, 1f);
+            cam2.rect = new Rect(0.5f, 0f, 0.5f, 1f);
+            cam2.enabled = split;
+            solo.SetVisible(!split);
+            p1.SetVisible(split);
+            p2.SetVisible(split);
+        }
+
+        void ShowSoloLane(CharacterDef character, bool silhouette)
+        {
+            SetSplit(false);
+            scenery.SetGround(Theme, new[] { 0f });
+            solo.Player.SetCharacter(character, silhouette);
+            solo.Reset(-1, 0);
+        }
+
+        int PlayableChar => Economy.Owns(charIndex) ? charIndex : Economy.Owns(Save.Character) ? Save.Character : 0;
+
+        // ---------- Menu ----------
 
         void EnterMenu()
         {
             Platform.GameplayStop();
             state = State.Menu;
             stateTime = 0f;
-            ResetRun();
-            RefreshMenu(true);
+            mode = Mode.Classic;
+            if (world != startWorld)
+            {
+                world = startWorld;
+                scenery.SetWorld(Theme, false);
+            }
+            ShowSoloLane(Char, !Economy.Owns(charIndex));
+            RefreshMenu();
         }
 
-        void RefreshMenu(bool rebuildCharacter)
+        void RefreshMenu()
         {
-            bool unlocked = Char.IsUnlocked(Save.Best);
-            if (rebuildCharacter) player.SetCharacter(Char, !unlocked);
+            bool owned = Economy.Owns(charIndex);
             int maxWorld = Mathf.Min(Save.MaxWorld, Themes.All.Length - 1);
             ui.ShowMenu(new GameUI.MenuInfo
             {
                 Best = Save.Best,
-                CharName = unlocked ? Char.Name : "???",
-                CharLock = unlocked ? "" : "REACH " + Char.Unlock + " TO UNLOCK",
-                CharLocked = !unlocked,
+                Coins = Save.Coins,
+                Price = Char.Price,
+                CharName = owned ? Char.Name : "???",
+                CharLock = owned ? "" : "BUY IT, OR SCORE " + Char.Unlock,
+                CharOwned = owned,
+                CanAfford = Save.Coins >= Char.Price,
                 WorldName = Theme.Name,
                 WorldArrows = maxWorld > 0,
+                DailyBadge = Daily.ChallengeDone ? "DONE!" : "GOAL " + Daily.Goal,
+                GiftReady = Daily.RewardAvailable,
             });
         }
 
@@ -167,8 +217,9 @@ namespace StackJump
         {
             sfx.Click();
             charIndex = (charIndex + delta + Characters.All.Length) % Characters.All.Length;
-            if (Char.IsUnlocked(Save.Best)) Save.Character = charIndex;
-            RefreshMenu(true);
+            if (Economy.Owns(charIndex)) Save.Character = charIndex;
+            solo.Player.SetCharacter(Char, !Economy.Owns(charIndex));
+            RefreshMenu();
         }
 
         void CycleWorld(int delta)
@@ -177,89 +228,239 @@ namespace StackJump
             int count = Mathf.Min(Save.MaxWorld, Themes.All.Length - 1) + 1;
             startWorld = (startWorld + delta + count) % count;
             Save.World = startWorld;
-            ResetRun();
-            RefreshMenu(false);
+            world = startWorld;
+            scenery.SetWorld(Theme, false);
+            ShowSoloLane(Char, !Economy.Owns(charIndex));
+            RefreshMenu();
         }
 
-        void StartPlaying()
+        void OnPlayPressed()
         {
-            if (state != State.Menu && state != State.GameOver) return;
-            if (!Char.IsUnlocked(Save.Best))
+            if (state != State.Menu || ui.RewardOpen) return;
+            if (Economy.Owns(charIndex))
             {
-                ui.Banner("LOCKED!");
-                sfx.Click();
+                StartRun(Mode.Classic);
                 return;
             }
+            if (Economy.TryBuy(charIndex))
+            {
+                Save.Character = charIndex;
+                sfx.Fanfare();
+                fx.Confetti(solo.Player.transform.position + Vector3.up * 1.5f, Theme.Palette);
+                ui.Banner(Char.Name + " UNLOCKED!");
+                solo.Player.SetCharacter(Char, false);
+                RefreshMenu();
+            }
+            else
+            {
+                sfx.Click();
+                ui.Banner("NOT ENOUGH COINS");
+            }
+        }
+
+        // ---------- Daily reward ----------
+
+        void ShowDailyReward() => ui.ShowDailyReward(Daily.RewardIndex, true);
+
+        void ClaimDailyReward(bool doubled)
+        {
+            if (!Daily.RewardAvailable) return;
             sfx.Click();
+            if (!doubled)
+            {
+                FinishClaim(Daily.ClaimReward(false));
+                return;
+            }
+            state = State.Busy;
+            Platform.Rewarded(ok =>
+            {
+                state = State.Menu;
+                FinishClaim(Daily.ClaimReward(ok));
+            });
+        }
+
+        void FinishClaim(int amount)
+        {
+            ui.HideDailyReward();
+            sfx.Fanfare();
+            fx.Confetti(solo.Player.transform.position + Vector3.up * 1.5f, new[] { GameUI.Gold, Color.white, Mats.Hex("FF9F1C") });
+            ui.Banner("+" + amount + " COINS!");
+            RefreshMenu();
+        }
+
+        // ---------- Runs ----------
+
+        void StartRun(Mode m)
+        {
+            if (state != State.Menu && state != State.Result && state != State.Busy) return;
+            mode = m;
+            charIndex = PlayableChar;
+            int seed = -1;
+            if (m == Mode.Daily)
+            {
+                seed = Daily.Seed;
+                world = Daily.World;
+            }
+            else world = startWorld;
+            scenery.SetWorld(Theme, false);
+            ShowSoloLane(Char, false);
+            solo.Reset(seed, 0);
+            solo.Active = true;
+            revived = dailyJustDone = false;
+            runCoins = 0;
+            runs++;
             state = State.Playing;
             stateTime = 0f;
-            spawnTimer = 0.5f;
+            ui.ShowHud(m == Mode.Daily ? Daily.ChallengeBest : Save.Best, m == Mode.Daily ? Daily.Goal : 0);
+            ui.Banner(m == Mode.Daily ? "DAILY TOWER" : Theme.Name);
+            Platform.GameplayStart();
+        }
+
+        void StartVersus()
+        {
+            if (state != State.Menu && state != State.Result && state != State.Busy) return;
+            mode = Mode.Versus;
+            world = startWorld;
+            scenery.SetWorld(Theme, false);
+            SetSplit(true);
+            scenery.SetGround(Theme, new[] { -VersusOffset, VersusOffset });
+            int c1 = PlayableChar;
+            int c2 = (c1 + 1) % Characters.All.Length;
+            p1.Player.SetCharacter(Characters.All[c1], false);
+            p2.Player.SetCharacter(Characters.All[c2], false);
+            // A 3-2-1 countdown gives both players time to get ready before the first blocks.
+            p1.Reset(-1, -1, CountdownTime + 0.3f);
+            p2.Reset(-1, 1, CountdownTime + 0.3f);
+            p1.Active = p2.Active = true;
             runs++;
-            ui.ShowHud(Save.Best);
-            ui.Banner(Theme.Name);
+            state = State.Playing;
+            stateTime = 0f;
+            countdownShown = -1;
+            ui.ShowVersusHud();
             Platform.GameplayStart();
         }
 
         void Retry()
         {
-            if (state != State.GameOver) return;
+            if (state != State.Result) return;
             sfx.Click();
             state = State.Busy;
-            void Go()
-            {
-                state = State.GameOver;
-                ResetRun();
-                player.SetCharacter(Char, false);
-                StartPlaying();
-            }
-            if (runs >= 2) Platform.Midgame(Go);
-            else Go();
+            var m = mode;
+            if (runs >= 2) Platform.Midgame(() => StartRun(m));
+            else StartRun(m);
+        }
+
+        void Rematch()
+        {
+            if (state != State.Result) return;
+            sfx.Click();
+            state = State.Busy;
+            if (runs >= 2) Platform.Midgame(StartVersus);
+            else StartVersus();
         }
 
         void Revive()
         {
-            if (state != State.GameOver || revived) return;
+            if (state != State.Result || revived || mode == Mode.Versus) return;
             sfx.Click();
             state = State.Busy;
             Platform.Rewarded(ok =>
             {
                 if (!ok)
                 {
-                    state = State.GameOver;
+                    state = State.Result;
                     ui.Banner("NO AD AVAILABLE");
                     return;
                 }
                 revived = true;
-                player.ResetTo(tower.TopY);
-                player.Kick(0.6f);
-                fx.Sparkle(player.transform.position + Vector3.up * 0.5f, Color.white, 30);
+                // Coins were banked at game over; count only new ones from here.
+                solo.Coins = 0;
+                solo.Revive();
+                fx.Sparkle(solo.Player.transform.position + Vector3.up * 0.5f, Color.white, 30);
                 state = State.Playing;
                 stateTime = 0f;
-                spawnTimer = 1.1f;
-                ui.ShowHud(Save.Best);
-                ui.SetScore(score, false);
+                ui.ShowHud(mode == Mode.Daily ? Daily.ChallengeBest : Save.Best, mode == Mode.Daily ? Daily.Goal : 0);
+                ui.SetScore(solo.Score, false);
+                ui.SetRunCoins(0);
                 ui.Banner("KEEP GOING!");
                 Platform.GameplayStart();
             });
         }
 
-        void EnterGameOver()
+        void DoubleCoins()
+        {
+            if (state != State.Result || runCoins <= 0) return;
+            sfx.Click();
+            state = State.Busy;
+            Platform.Rewarded(ok =>
+            {
+                state = State.Result;
+                if (!ok)
+                {
+                    ui.Banner("NO AD AVAILABLE");
+                    return;
+                }
+                Economy.Add(runCoins);
+                runCoins *= 2;
+                ui.SetDoubledCoins(runCoins);
+                sfx.Coin();
+            });
+        }
+
+        void EnterSoloResult()
         {
             Platform.GameplayStop();
-            state = State.GameOver;
+            state = State.Result;
             stateTime = 0f;
-            int oldBest = Save.Best;
-            bool newBest = score > oldBest;
-            string unlock = "";
-            if (newBest)
+            runCoins = solo.Coins;
+            Economy.Add(runCoins);
+
+            var info = new GameUI.GameOverInfo
             {
-                Save.Best = score;
-                foreach (var c in Characters.All)
-                    if (c.Unlock > oldBest && c.Unlock <= score) unlock = "NEW CHARACTER: " + c.Name + "!";
-                fx.Confetti(player.transform.position + Vector3.up * 2f, Theme.Palette);
-                Platform.HappyTime();
+                Score = solo.Score,
+                Coins = runCoins,
+                CanDouble = runCoins > 0,
+                CanRevive = !revived && solo.Score >= 3,
+                Daily = mode == Mode.Daily,
+            };
+            if (mode == Mode.Daily)
+            {
+                if (Daily.RecordHeight(solo.Score)) dailyJustDone = true;
+                info.DailyBest = Daily.ChallengeBest;
+                info.DailyGoal = Daily.Goal;
+                info.DailyJustDone = dailyJustDone;
             }
-            ui.ShowGameOver(score, Save.Best, newBest, unlock, !revived && score >= 3);
+            else
+            {
+                int oldBest = Save.Best;
+                info.NewBest = solo.Score > oldBest;
+                info.Unlock = "";
+                if (info.NewBest)
+                {
+                    Save.Best = solo.Score;
+                    foreach (var c in Characters.All)
+                        if (c.Unlock > oldBest && c.Unlock <= solo.Score) info.Unlock = "NEW CHARACTER: " + c.Name + "!";
+                    fx.Confetti(solo.Player.transform.position + Vector3.up * 2f, Theme.Palette);
+                    Platform.HappyTime();
+                }
+            }
+            info.Best = Save.Best;
+            ui.ShowGameOver(info);
+        }
+
+        void EnterVersusResult()
+        {
+            Platform.GameplayStop();
+            state = State.Result;
+            stateTime = 0f;
+            int winner = p1.Score == p2.Score ? -1 : p1.Score > p2.Score ? 0 : 1;
+            sfx.Fanfare();
+            if (winner >= 0)
+            {
+                var w = winner == 0 ? p1 : p2;
+                fx.Confetti(w.Player.transform.position + Vector3.up * 2f, new[] { winner == 0 ? GameUI.P1Color : GameUI.P2Color, Color.white, GameUI.Gold });
+            }
+            ui.ShowVersusResult(winner, p1.Score, p2.Score);
         }
 
         void ToggleSound()
@@ -269,145 +470,76 @@ namespace StackJump
             sfx.Click();
         }
 
-        // ---------- Loop ----------
+        // ---------- Lane events ----------
 
-        void Update()
+        void OnPassed(Lane lane, bool perfect, int gained)
         {
-            if (state == State.Boot || state == State.Busy || Platform.AdPlaying) return;
-            float dt = Time.deltaTime;
-            stateTime += dt;
-            bool pressed = (PointerPressed() && !OverUI()) || KeyPressed();
-            bool released = (PointerReleased() && !OverUI()) || KeyReleased();
-            if (autoplay) AutoInput(ref pressed, ref released);
+            var top = lane.TopY + Tower.BlockH;
+            ui.PopupAt(lane.Rig.Cam, new Vector3(lane.X + 1.2f, top + 0.5f, 0f), "+" + gained, perfect ? GameUI.Gold : Color.white);
+            if (perfect) sfx.Perfect(lane.Streak);
 
-            switch (state)
+            if (mode == Mode.Versus)
             {
-                case State.Menu:
-                    if (released && stateTime > 0.3f) StartPlaying();
-                    break;
-                case State.Playing:
-                    if (pressed && player.Jump()) sfx.Jump();
-                    UpdateIncoming(dt);
-                    break;
-                case State.Dying:
-                    UpdateIncoming(dt);
-                    if (stateTime > 1.1f) EnterGameOver();
-                    break;
-                case State.GameOver:
-                    if (KeyReleased() && stateTime > 0.6f) Retry();
-                    break;
-            }
-
-            rig.TargetY = tower.TopY;
-            UpdateFrameAndShadow();
-        }
-
-        void UpdateIncoming(float dt)
-        {
-            if (incoming == null)
-            {
-                if (state == State.Playing && player.Grounded)
-                {
-                    spawnTimer -= dt;
-                    if (spawnTimer <= 0f) Spawn();
-                }
-                player.LookAt(0f);
+                ui.SetVersusScore(lane == p1 ? 0 : 1, lane.Score);
+                if (perfect) ui.PopupAt(lane.Rig.Cam, new Vector3(lane.X - 1.4f, top + 0.9f, 0f), "PERFECT!", GameUI.Gold);
+                var other = lane == p1 ? p2 : p1;
+                if (other.Out && lane.Score > other.Score) EndVersus();
                 return;
             }
 
-            float prevDist = Mathf.Abs(incoming.X);
-            bool arrived;
-            if (incoming.Passed || state != State.Playing)
+            ui.SetScore(lane.Score);
+            ui.SetRunCoins(lane.Coins);
+            if (perfect) ui.Perfect(lane.Streak);
+            if (mode == Mode.Daily && !Daily.ChallengeDone && !dailyJustDone && lane.Score >= Daily.Goal)
             {
-                incoming.X = Mathf.MoveTowards(incoming.X, incoming.Target, incoming.Speed * dt);
-                arrived = Mathf.Approximately(incoming.X, incoming.Target);
-            }
-            else
-            {
-                incoming.X -= incoming.Dir * incoming.Speed * dt;
-                arrived = false;
-                float dist = Mathf.Abs(incoming.X);
-                if (prevDist > Contact && dist <= Contact)
+                dailyJustDone = Daily.RecordHeight(lane.Score);
+                if (dailyJustDone)
                 {
-                    if (player.FeetY >= tower.TopY + Tower.BlockH - 0.03f) Pass();
-                    else Hit();
+                    ui.Banner("GOAL REACHED! +" + Daily.ChallengeReward);
+                    sfx.Fanfare();
+                    fx.Confetti(lane.Player.transform.position + Vector3.up * 2f, Theme.Palette);
                 }
             }
-
-            incoming.Go.transform.position = new Vector3(incoming.X, tower.TopY, 0f);
-            if (!player.Dead) player.LookAt(incoming.Passed ? 0f : incoming.Dir);
-            if (arrived) Settle();
         }
 
-        void Spawn()
+        void OnHit(Lane lane)
         {
-            int h = tower.Height;
-            float speed = Mathf.Min(3.4f + h * 0.055f, 7.2f);
-            if (h > 6) speed *= Random.Range(0.88f, 1.12f);
-            if (h > 14 && Random.value < 0.15f) speed *= 1.3f;
-            float dir = Random.value < 0.5f ? -1f : 1f;
-            float dist = Mathf.Clamp(rig.HalfWidth + 1.0f, 3.6f, 7.5f);
-            var go = tower.CreateBlock(Theme, h);
-            go.transform.rotation = Quaternion.Euler(0, Random.Range(-5f, 5f), 0);
-            incoming = new Incoming { Go = go, X = dir * dist, Dir = dir, Speed = speed, Target = 0f };
-            autoLead = soak ? 0.1f : Random.value < 0.08f ? 0.01f : Random.Range(0.07f, 0.34f);
-            go.transform.position = new Vector3(incoming.X, tower.TopY, 0f);
-        }
-
-        void Pass()
-        {
-            incoming.Passed = true;
-            float late = player.Grounded ? 1f : player.TimeSinceJump;
-            bool perfect = late <= PerfectWindow;
-            incoming.Perfect = perfect;
-            // The worse the timing, the further off-center the block comes to rest.
-            float quality = Mathf.Clamp01((late - PerfectWindow) / 0.28f);
-            float side = Random.value < 0.65f ? -incoming.Dir : incoming.Dir;
-            incoming.Target = perfect ? 0f : side * Mathf.Lerp(0.07f, MaxOffset, quality) * Random.Range(0.75f, 1f);
-
-            streak = perfect ? streak + 1 : 0;
-            int gained = perfect ? 1 + Mathf.Min(streak, 2) : 1;
-            score += gained;
-            ui.SetScore(score);
-            var top = tower.TopY + Tower.BlockH;
-            ui.PopupAt(cam, new Vector3(1.2f, top + 0.5f, 0f), "+" + gained, perfect ? new Color(1f, 0.89f, 0.36f) : Color.white);
-            if (perfect)
-            {
-                ui.Perfect(streak);
-                sfx.Perfect(streak);
-            }
-        }
-
-        void Hit()
-        {
-            state = State.Dying;
-            stateTime = 0f;
-            streak = 0;
-            player.Die(-incoming.Dir);
             sfx.Hit();
-            rig.Shake(0.45f);
-            fx.Sparkle(player.transform.position + Vector3.up * 0.4f, Color.white, 14);
-            Platform.GameplayStop();
+            lane.Rig.Shake(0.45f);
+            fx.Sparkle(lane.Player.transform.position + Vector3.up * 0.4f, Color.white, 14);
+
+            if (mode != Mode.Versus)
+            {
+                state = State.Ending;
+                stateTime = 0f;
+                Platform.GameplayStop();
+                return;
+            }
+            var other = lane == p1 ? p2 : p1;
+            if (other.Out || other.Score > lane.Score) EndVersus();
         }
 
-        void Settle()
+        void EndVersus()
         {
-            var block = incoming.Go;
-            bool perfect = incoming.Perfect;
-            float x = incoming.X;
-            tower.Add(block);
-            incoming = null;
-            spawnTimer = Random.Range(0.12f, 0.45f);
-            tower.Kick(perfect ? 8f : 22f * Mathf.Sign(x == 0f ? 1f : x));
-            fx.Dust(new Vector3(x, tower.TopY - Tower.BlockH, 0f), Color.Lerp(scenery.Current.Fog, Color.white, 0.5f));
+            if (state != State.Playing) return;
+            p1.Active = p2.Active = false;
+            state = State.Ending;
+            stateTime = 0f;
+        }
+
+        void OnSettled(Lane lane, bool perfect, float offset)
+        {
+            fx.Dust(new Vector3(lane.X + offset, lane.TopY - Tower.BlockH, 0f), Color.Lerp(scenery.Current.Fog, Color.white, 0.5f));
             if (perfect)
             {
-                fx.Sparkle(new Vector3(0, tower.TopY + 0.1f, 0), Theme.Palette[0], 30);
-                fx.Ring(new Vector3(0, tower.TopY + 0.02f, 0));
+                fx.Sparkle(new Vector3(lane.X, lane.TopY + 0.1f, 0), Theme.Palette[0], 30);
+                fx.Ring(new Vector3(lane.X, lane.TopY + 0.02f, 0));
             }
+            if (autoplay) lane.AutoLead = soak ? 0.1f : Random.value < 0.08f ? 0.01f : Random.Range(0.07f, 0.34f);
 
-            int next = (startWorld + tower.Height / BlocksPerWorld) % Themes.All.Length;
-            if (next != world && state == State.Playing)
+            if (mode != Mode.Classic || state != State.Playing) return;
+            int next = (startWorld + lane.Tower.Height / BlocksPerWorld) % Themes.All.Length;
+            if (next != world)
             {
                 world = next;
                 if (world > Save.MaxWorld) Save.MaxWorld = world;
@@ -417,39 +549,96 @@ namespace StackJump
             }
         }
 
-        void OnLanded()
-        {
-            var feet = player.transform.position;
-            sfx.Land();
-            fx.Dust(feet, Color.Lerp(scenery.Current.Fog, Color.white, 0.5f));
-        }
+        // ---------- Loop ----------
 
-        float SupportY()
+        void Update()
         {
-            if (incoming != null && incoming.Passed) return tower.TopY + Tower.BlockH;
-            return tower.TopY;
-        }
+            if (state == State.Boot || Platform.AdPlaying) return;
+            float dt = Time.deltaTime;
+            stateTime += dt;
 
-        void UpdateFrameAndShadow()
-        {
-            bool playing = state == State.Playing;
-            frame.gameObject.SetActive(playing);
-            if (playing)
+            ReadInput(out bool any, out bool left, out bool right, out bool released);
+            if (autoplay) AutoMenu(ref released);
+
+            switch (state)
             {
-                frame.position = new Vector3(0, tower.TopY + Tower.BlockH + 0.02f, 0);
-                float a = incoming != null && !incoming.Passed ? 0.35f + Mathf.PingPong(Time.time * 2f, 0.4f) : 0.2f;
-                frameMat.SetColor("_BaseColor", new Color(1, 1, 1, a));
+                case State.Menu:
+                    if (released && stateTime > 0.3f && !ui.RewardOpen && Economy.Owns(charIndex)) StartRun(Mode.Classic);
+                    break;
+                case State.Ending:
+                    if (stateTime > 1.1f)
+                    {
+                        if (mode == Mode.Versus) EnterVersusResult();
+                        else EnterSoloResult();
+                    }
+                    break;
+                case State.Result:
+                    if (KeyReleased() && stateTime > 0.6f)
+                    {
+                        if (mode == Mode.Versus) Rematch();
+                        else Retry();
+                    }
+                    break;
             }
 
-            bool showShadow = !player.Dead;
-            shadow.gameObject.SetActive(showShadow);
-            if (showShadow)
+            bool playing = state == State.Playing;
+            if (playing && mode == Mode.Versus && countdownShown < 4)
             {
-                float ground = SupportY();
-                float h = Mathf.Max(0f, player.FeetY - ground);
-                float s = Mathf.Lerp(1.05f, 0.55f, h / 1.6f);
-                shadow.position = new Vector3(0, ground + 0.015f, 0);
-                shadow.localScale = new Vector3(s, 1f, s * 0.85f);
+                int step = Mathf.Min(3, Mathf.FloorToInt(stateTime / (CountdownTime / 3f)));
+                if (step > countdownShown)
+                {
+                    countdownShown = step;
+                    ui.Banner(step < 3 ? (3 - step).ToString() : "GO!", 200);
+                    if (step < 3) sfx.Click();
+                    else
+                    {
+                        sfx.Perfect(1);
+                        countdownShown = 4;
+                    }
+                }
+            }
+            if (mode == Mode.Versus && cam2.enabled)
+            {
+                p1.Tick(dt, playing && left, autoplay);
+                p2.Tick(dt, playing && right, autoplay);
+            }
+            else solo.Tick(dt, playing && any, autoplay);
+        }
+
+        void ReadInput(out bool any, out bool left, out bool right, out bool released)
+        {
+            any = left = right = false;
+            released = (PointerReleased() && !OverUI()) || KeyReleased();
+            var k = Keyboard.current;
+            if (k != null)
+            {
+                bool w = k.wKey.wasPressedThisFrame || k.aKey.wasPressedThisFrame;
+                bool up = k.upArrowKey.wasPressedThisFrame || k.rightArrowKey.wasPressedThisFrame;
+                bool space = k.spaceKey.wasPressedThisFrame;
+                left |= w;
+                right |= up;
+                any |= w || up || space;
+            }
+
+            // Every new touch counts, so both players can tap at the same time.
+            var touch = Touchscreen.current;
+            if (touch != null)
+            {
+                foreach (var t in touch.touches)
+                {
+                    if (!t.press.wasPressedThisFrame) continue;
+                    if (OverUI()) continue;
+                    any = true;
+                    if (t.position.ReadValue().x < Screen.width * 0.5f) left = true;
+                    else right = true;
+                }
+            }
+            var mouse = Mouse.current;
+            if (mouse != null && mouse.leftButton.wasPressedThisFrame && !OverUI())
+            {
+                any = true;
+                if (mouse.position.ReadValue().x < Screen.width * 0.5f) left = true;
+                else right = true;
             }
         }
 
@@ -465,37 +654,30 @@ namespace StackJump
                 var kv = part.Split('=');
                 if (kv[0] == "autoplay") autoplay = true;
                 if (kv[0] == "soak") soak = true;
+                if (kv[0] == "mode" && kv.Length > 1) forcedMode = kv[1];
                 if (kv[0] == "world" && kv.Length > 1 && int.TryParse(kv[1], out int w))
                     forcedWorld = Mathf.Clamp(w, 0, Themes.All.Length - 1);
             }
         }
 
-        void AutoInput(ref bool pressed, ref bool released)
+        void AutoMenu(ref bool released)
         {
-            if (state == State.GameOver && stateTime > 1.2f)
+            if (state == State.Menu && stateTime > 1.2f)
             {
-                Retry();
-                return;
+                if (forcedMode == "versus") StartVersus();
+                else if (forcedMode == "daily") StartRun(Mode.Daily);
+                else released = true;
             }
-            if (state != State.Playing)
+            if (state == State.Result && stateTime > 1.5f)
             {
-                released |= stateTime > 1.2f;
-                return;
+                if (mode == Mode.Versus) Rematch();
+                else Retry();
             }
-            if (incoming != null && !incoming.Passed && player.Grounded)
-                pressed |= (Mathf.Abs(incoming.X) - Contact) / incoming.Speed <= autoLead;
         }
 
-        // ---------- Input ----------
+        // ---------- Input helpers ----------
 
-        static bool PointerPressed() => Pointer.current != null && Pointer.current.press.wasPressedThisFrame;
         static bool PointerReleased() => Pointer.current != null && Pointer.current.press.wasReleasedThisFrame;
-
-        static bool KeyPressed()
-        {
-            var k = Keyboard.current;
-            return k != null && (k.spaceKey.wasPressedThisFrame || k.upArrowKey.wasPressedThisFrame || k.wKey.wasPressedThisFrame);
-        }
 
         static bool KeyReleased()
         {

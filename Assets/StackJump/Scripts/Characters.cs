@@ -10,14 +10,13 @@ namespace StackJump
         public readonly string Name;
         public readonly Color Body, Feet, Iris;
         public readonly Accessory Kind;
-        public readonly int Unlock; // best score needed
+        public readonly int Unlock; // best score that also unlocks it for free
+        public readonly int Price;  // coins
 
-        public CharacterDef(string name, Color body, Color feet, Color iris, Accessory kind, int unlock)
+        public CharacterDef(string name, Color body, Color feet, Color iris, Accessory kind, int unlock, int price)
         {
-            Name = name; Body = body; Feet = feet; Iris = iris; Kind = kind; Unlock = unlock;
+            Name = name; Body = body; Feet = feet; Iris = iris; Kind = kind; Unlock = unlock; Price = price;
         }
-
-        public bool IsUnlocked(int best) => best >= Unlock;
     }
 
     public static class Characters
@@ -26,13 +25,13 @@ namespace StackJump
 
         public static readonly CharacterDef[] All =
         {
-            new("BLOBBY", H("F2557A"), H("C93A5E"), H("4A2A1E"), Accessory.Tuft, 0),
-            new("CHIRP", H("FFD23F"), H("F29A1F"), H("2A3A6E"), Accessory.Chick, 10),
-            new("OINKY", H("F7A1B5"), H("E07A93"), H("3A2A50"), Accessory.Pig, 20),
-            new("FRANKIE", H("8FB26B"), H("4E6B3A"), H("5A2A2A"), Accessory.Frank, 30),
-            new("SIR WOBBLE", H("FFC93C"), H("D9A21F"), H("2E4A7A"), Accessory.Knight, 45),
-            new("BOK", H("EEF7DD"), H("9CCB6A"), H("2F5A2A"), Accessory.Leafy, 60),
-            new("ROBO", H("B9C3D6"), H("6B7488"), H("3EF2FF"), Accessory.Robot, 80),
+            new("BLOBBY", H("F2557A"), H("C93A5E"), H("4A2A1E"), Accessory.Tuft, 0, 0),
+            new("CHIRP", H("FFD23F"), H("F29A1F"), H("2A3A6E"), Accessory.Chick, 10, 150),
+            new("OINKY", H("F7A1B5"), H("E07A93"), H("3A2A50"), Accessory.Pig, 20, 300),
+            new("FRANKIE", H("8FB26B"), H("4E6B3A"), H("5A2A2A"), Accessory.Frank, 30, 450),
+            new("SIR WOBBLE", H("FFC93C"), H("D9A21F"), H("2E4A7A"), Accessory.Knight, 45, 650),
+            new("BOK", H("EEF7DD"), H("9CCB6A"), H("2F5A2A"), Accessory.Leafy, 60, 850),
+            new("ROBO", H("B9C3D6"), H("6B7488"), H("3EF2FF"), Accessory.Robot, 80, 1200),
         };
     }
 

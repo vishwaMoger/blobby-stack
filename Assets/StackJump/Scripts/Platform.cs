@@ -10,7 +10,7 @@ namespace StackJump
     // the game stuck: init and ads all have timeouts.
     public static class Platform
     {
-        const float InitTimeout = 5f;
+        const float InitTimeout = 8f;
         const float AdStartTimeout = 8f;
         const float AdMaxDuration = 90f;
 
@@ -189,9 +189,15 @@ namespace StackJump
 
         // ---------- Save data (CrazyGames cloud save when available) ----------
 
+        // The data source is fixed at the first read. If the SDK was late (init timed out), the
+        // session keeps using the local copy; it must never write that copy over the cloud save.
+        static bool? cloudData;
+
+        static bool UseCloud => cloudData ??= ready;
+
         public static int GetInt(string key, int fallback = 0)
         {
-            if (ready)
+            if (UseCloud)
             {
                 try { return CrazySDK.Data.GetInt(key, fallback); }
                 catch (Exception e) { Debug.LogWarning("[Platform] Data read failed: " + e.Message); }
@@ -201,15 +207,12 @@ namespace StackJump
 
         public static void SetInt(string key, int value)
         {
-            if (ready)
+            if (UseCloud)
             {
-                try
-                {
-                    CrazySDK.Data.SetInt(key, value);
-                    return;
-                }
+                try { CrazySDK.Data.SetInt(key, value); }
                 catch (Exception e) { Debug.LogWarning("[Platform] Data write failed: " + e.Message); }
             }
+            // Always keep a local copy as a fallback for sessions where the SDK is unavailable.
             PlayerPrefs.SetInt(key, value);
             PlayerPrefs.Save();
         }

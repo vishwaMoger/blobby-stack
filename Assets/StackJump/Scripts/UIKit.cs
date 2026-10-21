@@ -6,7 +6,7 @@ using UnityEngine.UI;
 
 namespace StackJump
 {
-    public enum Icon { Play, Left, Right, Sound, Mute, Home, Retry, Trophy, Video, Lock }
+    public enum Icon { Play, Left, Right, Sound, Mute, Home, Retry, Trophy, Video, Lock, Coin, Gift, Users, Check }
 
     // Procedural sprites, icons and chunky game buttons for the code-built UI.
     public static class UIKit
@@ -97,11 +97,12 @@ namespace StackJump
 
             float iconSize = Mathf.Min(size.y * 0.52f, 72f);
             bool hasLabel = !string.IsNullOrEmpty(label);
+            Image iconImage = null;
             if (icon.HasValue)
             {
                 var ix = hasLabel ? -size.x * 0.5f + size.y * 0.55f : 0f;
-                var ic = Img(faceRt, "Icon", IconSprite(icon.Value), Color.white, new Vector2(0.5f, 0.5f), new Vector2(ix, 2f), Vector2.one * iconSize);
-                var sh = ic.gameObject.AddComponent<Shadow>();
+                iconImage = Img(faceRt, "Icon", IconSprite(icon.Value), Color.white, new Vector2(0.5f, 0.5f), new Vector2(ix, 2f), Vector2.one * iconSize);
+                var sh = iconImage.gameObject.AddComponent<Shadow>();
                 sh.effectColor = new Color(0, 0, 0, 0.3f);
                 sh.effectDistance = new Vector2(0, -4);
             }
@@ -113,7 +114,7 @@ namespace StackJump
             }
 
             var b = rt.gameObject.AddComponent<GameButton>();
-            b.Setup(faceRt, lip.rectTransform, onClick, text);
+            b.Setup(faceRt, lip, face, iconImage, onClick, text);
             return b;
         }
 
@@ -226,6 +227,27 @@ namespace StackJump
                 case Icon.Video:
                     return (x, y) => Mathf.Min(SdRoundBox(x + 0.18f, y, 0.52f, 0.42f, 0.12f),
                         SdPoly(x, y, new Vector2(0.38f, 0f), new Vector2(0.82f, -0.38f), new Vector2(0.82f, 0.38f)));
+                case Icon.Coin:
+                    return (x, y) => Mathf.Max(Mathf.Sqrt(x * x + y * y) - 0.92f, -SdRing(x, y, 0.6f, 0.07f));
+                case Icon.Gift:
+                    return (x, y) =>
+                    {
+                        float box = Mathf.Min(SdBox(x, y, -0.7f, -0.78f, 0.7f, 0.12f), SdBox(x, y, -0.82f, 0.12f, 0.82f, 0.42f));
+                        box = Mathf.Max(box, -SdBox(x, y, -0.1f, -0.9f, 0.1f, 0.5f));
+                        float bow = Mathf.Min(SdRing(x + 0.25f, y - 0.62f, 0.2f, 0.08f), SdRing(x - 0.25f, y - 0.62f, 0.2f, 0.08f));
+                        return Mathf.Min(box, bow);
+                    };
+                case Icon.Users:
+                    return (x, y) =>
+                    {
+                        float a = Mathf.Min(Mathf.Sqrt((x + 0.38f) * (x + 0.38f) + (y - 0.38f) * (y - 0.38f)) - 0.26f,
+                            SdRoundBox(x + 0.38f, y + 0.42f, 0.36f, 0.3f, 0.28f));
+                        float b = Mathf.Min(Mathf.Sqrt((x - 0.38f) * (x - 0.38f) + (y - 0.38f) * (y - 0.38f)) - 0.26f,
+                            SdRoundBox(x - 0.38f, y + 0.42f, 0.36f, 0.3f, 0.28f));
+                        return Mathf.Min(a, b);
+                    };
+                case Icon.Check:
+                    return (x, y) => Mathf.Min(SdSegment(x, y, -0.6f, 0.02f, -0.15f, -0.48f, 0.15f), SdSegment(x, y, -0.15f, -0.48f, 0.65f, 0.5f, 0.15f));
                 case Icon.Lock:
                     return (x, y) => Mathf.Min(SdRoundBox(x, y + 0.25f, 0.55f, 0.42f, 0.1f),
                         Mathf.Max(SdRing(x, y - 0.18f, 0.34f, 0.1f), -y + 0.1f));
@@ -238,19 +260,36 @@ namespace StackJump
     // Press-down animation and click handling for UIKit buttons.
     public class GameButton : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IPointerClickHandler, IPointerEnterHandler, IPointerExitHandler
     {
-        RectTransform face, lip;
+        RectTransform face;
+        Image faceImage, lipImage;
         Action onClick;
         float press, hover;
         bool down;
         public Text Text { get; private set; }
+        public Image IconImage { get; private set; }
         public bool Pulse;
 
-        public void Setup(RectTransform faceRect, RectTransform lipRect, Action click, Text text)
+        public void Setup(RectTransform faceRect, Image lip, Image faceImg, Image icon, Action click, Text text)
         {
             face = faceRect;
-            lip = lipRect;
+            lipImage = lip;
+            faceImage = faceImg;
+            IconImage = icon;
             onClick = click;
             Text = text;
+        }
+
+        public void SetColor(Color c)
+        {
+            faceImage.color = c;
+            lipImage.color = Color.Lerp(c, Color.black, 0.38f);
+        }
+
+        public void SetIcon(Icon icon, Color tint)
+        {
+            if (IconImage == null) return;
+            IconImage.sprite = UIKit.IconSprite(icon);
+            IconImage.color = tint;
         }
 
         public void OnPointerDown(PointerEventData e) => down = true;

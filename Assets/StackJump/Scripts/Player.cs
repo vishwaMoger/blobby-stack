@@ -12,6 +12,7 @@ namespace StackJump
         const float Gravity = 34f;
 
         public CharacterRig Rig { get; private set; }
+        public float HomeX; // x of this player's tower
         public bool Grounded { get; private set; } = true;
         public bool Dead { get; private set; }
         public float FeetY => transform.position.y;
@@ -45,7 +46,7 @@ namespace StackJump
             Dead = false;
             Grounded = true;
             vy = 0;
-            transform.SetPositionAndRotation(new Vector3(0, y, 0), Quaternion.identity);
+            transform.SetPositionAndRotation(new Vector3(HomeX, y, 0), Quaternion.identity);
             Rig?.SetDead(false);
         }
 
