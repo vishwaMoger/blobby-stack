@@ -169,7 +169,7 @@ namespace StackJump
             go.transform.position = new Vector3(X + Current.X, TopY, 0f);
         }
 
-        static GameObject MakeCoin(Transform block)
+        public static GameObject MakeCoin(Transform block)
         {
             var coin = new GameObject("Coin");
             coin.transform.SetParent(block, false);

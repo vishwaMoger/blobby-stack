@@ -147,8 +147,8 @@ namespace StackJump
         static void Mountains(Transform root, WorldTheme th)
         {
             Ridge(root, th, 88f, 2f, 16f, 0.035f, th.Seed, Color.Lerp(th.Far, th.Fog, 0.25f), true);
+            // No near ridge: at ground level it poked through the field as dark slivers.
             Ridge(root, th, 66f, -1f, 12f, 0.045f, th.Seed + 3, Color.Lerp(th.Far, th.Near, 0.5f), true);
-            Ridge(root, th, 44f, -4f, 6f, 0.03f, th.Seed + 7, th.Near, false);
         }
 
         static void KitchenWall(Transform root, WorldTheme th, System.Random rng)

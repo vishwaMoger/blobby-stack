@@ -190,7 +190,7 @@ namespace StackJump.EditorTools
 
         static void ConfigurePlayer()
         {
-            PlayerSettings.productName = "Stack Hop";
+            PlayerSettings.productName = "Blobby Stack";
             PlayerSettings.colorSpace = ColorSpace.Linear;
             PlayerSettings.runInBackground = false;
             PlayerSettings.stripEngineCode = true;
@@ -205,19 +205,34 @@ namespace StackJump.EditorTools
             PlayerSettings.SplashScreen.showUnityLogo = false;
         }
 
+        // ---------- Store covers ----------
+
+        // Enters Play mode with SJ_ARGS (e.g. "shot&world=0") and SJ_CAPTURE ("outDir|prefix")
+        // set in the environment; CoverShooter renders the covers and quits. Run without -quit.
+        public static void CaptureCovers()
+        {
+            EditorSceneManager.OpenScene(ScenePath);
+            EditorApplication.EnterPlaymode();
+        }
+
         // ---------- Builds ----------
 
-        public static void BuildDev() => Build("Builds/WebGL-dev", WebGLCompressionFormat.Disabled, WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly);
+        public static void BuildDev() => Build("Builds/WebGL-dev", WebGLCompressionFormat.Disabled, WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly, true);
 
         // Explicitly thrown exceptions stay catchable in release, so the try/catch guards around
         // the SDK work instead of an exception aborting the whole WebGL player.
-        public static void BuildRelease() => Build("Builds/WebGL", WebGLCompressionFormat.Brotli, WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly);
+        // Basic Launch build: CrazyGames disables ads there, so no ad buttons at all.
+        public static void BuildRelease() => Build("Builds/WebGL", WebGLCompressionFormat.Brotli, WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly, false);
 
-        static void Build(string output, WebGLCompressionFormat compression, WebGLExceptionSupport exceptions)
+        // Full Launch build: midgame and rewarded ads through the SDK.
+        public static void BuildReleaseFull() => Build("Builds/WebGL-full", WebGLCompressionFormat.Brotli, WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly, true);
+
+        static void Build(string output, WebGLCompressionFormat compression, WebGLExceptionSupport exceptions, bool ads)
         {
             ConfigurePlayer();
             PlayerSettings.WebGL.compressionFormat = compression;
             PlayerSettings.WebGL.exceptionSupport = exceptions;
+            PlayerSettings.SetScriptingDefineSymbols(NamedBuildTarget.WebGL, ads ? "SJ_ADS" : "");
             var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
                 scenes = new[] { ScenePath },

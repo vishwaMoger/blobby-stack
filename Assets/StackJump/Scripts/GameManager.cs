@@ -30,16 +30,19 @@ namespace StackJump
         Sfx sfx;
         Lane solo, p1, p2;
 
+        const int ReviveCost = 100;
+
         State state = State.Boot;
         Mode mode;
-        int charIndex, world, startWorld, runs, runCoins;
-        bool revived, dailyJustDone;
+        int charIndex, world, startWorld, runs, runCoins, lastAdReviveRun = -99;
+        bool revived, dailyJustDone, tutorial, rewardPrompted;
+        bool rewardedOffered, rewardedWatched; // on the current game-over screen
         float stateTime;
 
         // Test hooks: ?autoplay&soak&world=N&mode=daily|versus in the page URL.
         bool autoplay, soak;
         int forcedWorld = -1;
-        string forcedMode = "";
+        string forcedMode = "", shot = "";
 
         WorldTheme Theme => Themes.All[world];
         CharacterDef Char => Characters.All[charIndex];
@@ -90,8 +93,21 @@ namespace StackJump
             charIndex = Mathf.Clamp(Save.Character, 0, Characters.All.Length - 1);
             if (!Economy.Owns(charIndex)) charIndex = 0;
             startWorld = forcedWorld >= 0 ? forcedWorld : Mathf.Clamp(Save.World, 0, Mathf.Min(Save.MaxWorld, Themes.All.Length - 1));
+            if (shot != "")
+            {
+                SetupShot();
+                return;
+            }
+            // CrazyGames Full Launch: new players land directly in gameplay. Returning players get
+            // the menu; the daily reward pops up once they come back to it after a run.
+            bool firstTime = Save.Best == 0 && Save.Coins == 0 && Save.RewardDay == 0;
             EnterMenu();
-            if (Daily.RewardAvailable && !autoplay) ShowDailyReward();
+            if (firstTime && !autoplay)
+            {
+                StartRun(Mode.Classic);
+                tutorial = true;
+                ui.ShowTutorial(true);
+            }
         }
 
         void CreateSecondCamera()
@@ -191,6 +207,11 @@ namespace StackJump
             }
             ShowSoloLane(Char, !Economy.Owns(charIndex));
             RefreshMenu();
+            if (runs > 0 && !rewardPrompted && Daily.RewardAvailable && !autoplay)
+            {
+                rewardPrompted = true;
+                ShowDailyReward();
+            }
         }
 
         void RefreshMenu()
@@ -260,7 +281,7 @@ namespace StackJump
 
         // ---------- Daily reward ----------
 
-        void ShowDailyReward() => ui.ShowDailyReward(Daily.RewardIndex, true);
+        void ShowDailyReward() => ui.ShowDailyReward(Daily.RewardIndex, Platform.RewardedAvailable);
 
         void ClaimDailyReward(bool doubled)
         {
@@ -346,7 +367,9 @@ namespace StackJump
             sfx.Click();
             state = State.Busy;
             var m = mode;
-            if (runs >= 2) Platform.Midgame(() => StartRun(m));
+            // No midgame ad right after a "watch to keep playing" offer, or after a rewarded ad
+            // on this screen (CrazyGames: don't pair or chain ads).
+            if (runs >= 2 && !rewardedOffered && !rewardedWatched) Platform.Midgame(() => StartRun(m));
             else StartRun(m);
         }
 
@@ -359,19 +382,36 @@ namespace StackJump
             else StartVersus();
         }
 
-        void Revive()
+        void Revive(bool withCoins)
         {
             if (state != State.Result || revived || mode == Mode.Versus) return;
             sfx.Click();
+            if (withCoins)
+            {
+                if (Save.Coins < ReviveCost) return;
+                Save.Coins -= ReviveCost;
+                ResumeAfterRevive();
+                return;
+            }
             state = State.Busy;
             Platform.Rewarded(ok =>
             {
                 if (!ok)
                 {
+                    // No reward on an ad error; the ad buttons hide for the rest of the session.
                     state = State.Result;
-                    ui.Banner("NO AD AVAILABLE");
+                    ui.HideRewardedButtons();
+                    ui.Banner("AD NOT AVAILABLE");
                     return;
                 }
+                lastAdReviveRun = runs;
+                ResumeAfterRevive();
+            });
+        }
+
+        void ResumeAfterRevive()
+        {
+            {
                 revived = true;
                 // Coins were banked at game over; count only new ones from here.
                 solo.Coins = 0;
@@ -384,7 +424,7 @@ namespace StackJump
                 ui.SetRunCoins(0);
                 ui.Banner("KEEP GOING!");
                 Platform.GameplayStart();
-            });
+            }
         }
 
         void DoubleCoins()
@@ -397,9 +437,11 @@ namespace StackJump
                 state = State.Result;
                 if (!ok)
                 {
-                    ui.Banner("NO AD AVAILABLE");
+                    ui.HideRewardedButtons();
+                    ui.Banner("AD NOT AVAILABLE");
                     return;
                 }
+                rewardedWatched = true;
                 Economy.Add(runCoins);
                 runCoins *= 2;
                 ui.SetDoubledCoins(runCoins);
@@ -415,14 +457,21 @@ namespace StackJump
             runCoins = solo.Coins;
             Economy.Add(runCoins);
 
+            // Revive is a special offer, not an every-death thing: only after a good run, and the
+            // ad version at most once every 3 runs. Coins are always an alternative to the ad.
+            bool goodRun = !revived && solo.Score >= 10 && (mode == Mode.Daily || solo.Score >= Save.Best / 2);
             var info = new GameUI.GameOverInfo
             {
                 Score = solo.Score,
                 Coins = runCoins,
-                CanDouble = runCoins > 0,
-                CanRevive = !revived && solo.Score >= 3,
+                CanDouble = runCoins > 0 && Platform.RewardedAvailable,
+                CanReviveAd = goodRun && Platform.RewardedAvailable && runs - lastAdReviveRun >= 3,
+                CanReviveCoins = goodRun && Save.Coins >= ReviveCost,
+                ReviveCost = ReviveCost,
                 Daily = mode == Mode.Daily,
             };
+            rewardedOffered = info.CanReviveAd;
+            rewardedWatched = false;
             if (mode == Mode.Daily)
             {
                 if (Daily.RecordHeight(solo.Score)) dailyJustDone = true;
@@ -474,6 +523,11 @@ namespace StackJump
 
         void OnPassed(Lane lane, bool perfect, int gained)
         {
+            if (tutorial)
+            {
+                tutorial = false;
+                ui.ShowTutorial(false);
+            }
             var top = lane.TopY + Tower.BlockH;
             ui.PopupAt(lane.Rig.Cam, new Vector3(lane.X + 1.2f, top + 0.5f, 0f), "+" + gained, perfect ? GameUI.Gold : Color.white);
             if (perfect) sfx.Perfect(lane.Streak);
@@ -556,6 +610,17 @@ namespace StackJump
             if (state == State.Boot || Platform.AdPlaying) return;
             float dt = Time.deltaTime;
             stateTime += dt;
+            if (shot != "")
+            {
+                shotT += dt;
+                if (shotT > 0.6f)
+                {
+                    shotT = 0f;
+                    fx.Sparkle(solo.Player.transform.position + Vector3.up * 0.5f, Theme.Palette[0], 18);
+                }
+                solo.Tick(dt, false, false);
+                return;
+            }
 
             ReadInput(out bool any, out bool left, out bool right, out bool released);
             if (autoplay) AutoMenu(ref released);
@@ -642,11 +707,79 @@ namespace StackJump
             }
         }
 
+        // ---------- Cover images (?shot=1&world=N&char=N) ----------
+
+        int shotChar;
+        float shotT;
+
+        // Poses a frozen hero moment for store covers: an uneven tower, the character mid-jump
+        // looking at an incoming block, sparkles, and only the title as UI.
+        void SetupShot()
+        {
+            state = State.Busy;
+            mode = Mode.Classic;
+            world = Mathf.Max(0, forcedWorld);
+            scenery.SetWorld(Theme, true);
+            ShowSoloLane(Characters.All[shotChar], false);
+            var rng = new System.Random(7);
+            for (int i = 1; i <= 6; i++)
+            {
+                var b = solo.Tower.CreateBlock(Theme, i);
+                b.transform.SetPositionAndRotation(new Vector3(((float)rng.NextDouble() - 0.5f) * 0.36f, 0, 0),
+                    Quaternion.Euler(0, ((float)rng.NextDouble() - 0.5f) * 10f, 0));
+                solo.Tower.Add(b);
+            }
+            var incoming = solo.Tower.CreateBlock(Theme, 7);
+            incoming.transform.position = new Vector3(2.1f, solo.TopY, 0);
+            rig.Distance = 6.4f;
+            rig.Snap(solo.TopY);
+
+            // Coins floating around the hero.
+            var coinSpots = new[] { new Vector3(-1.7f, 1.7f, 0.3f), new Vector3(1.5f, 2.3f, 0.6f), new Vector3(-1.2f, 2.9f, 1.2f) };
+            foreach (var spot in coinSpots)
+            {
+                var anchor = new GameObject("CoverCoin").transform;
+                anchor.position = new Vector3(spot.x, solo.TopY + spot.y - Tower.BlockH - 0.42f, spot.z);
+                Lane.MakeCoin(anchor).transform.localScale = Vector3.one * 1.3f;
+            }
+
+            var p = solo.Player;
+            p.transform.position = new Vector3(0, solo.TopY + 0.7f, 0);
+            p.Rig.ArmsUp(0.8f);
+            p.Rig.Look(1f);
+            p.Rig.Squash.localScale = new Vector3(0.93f, 1.12f, 0.93f);
+            p.enabled = false;
+            ui.ShowShot(Screen.height > Screen.width);
+#if UNITY_EDITOR
+            var capture = System.Environment.GetEnvironmentVariable("SJ_CAPTURE");
+            if (!string.IsNullOrEmpty(capture))
+            {
+                var parts = capture.Split('|');
+                var shooter = gameObject.AddComponent<CoverShooter>();
+                shooter.Cam = cam;
+                shooter.OutDir = parts[0];
+                shooter.Prefix = parts.Length > 1 ? parts[1] : "cover";
+            }
+#endif
+        }
+
+        // Called by CoverShooter right before each capture.
+        public void ShotBurst()
+        {
+            var pos = solo.Player.transform.position + Vector3.up * 0.5f;
+            fx.Sparkle(pos, Theme.Palette[0], 36);
+            fx.Sparkle(pos, GameUI.Gold, 20);
+        }
+
         // ---------- Test hooks ----------
 
         void ReadTestParams()
         {
             string url = Application.absoluteURL ?? "";
+#if UNITY_EDITOR
+            // Headless editor runs (cover capture) pass the same flags through an env variable.
+            if (url == "") url = "?" + (System.Environment.GetEnvironmentVariable("SJ_ARGS") ?? "");
+#endif
             int q = url.IndexOf('?');
             if (q < 0) return;
             foreach (var part in url.Substring(q + 1).Split('&'))
@@ -655,6 +788,10 @@ namespace StackJump
                 if (kv[0] == "autoplay") autoplay = true;
                 if (kv[0] == "soak") soak = true;
                 if (kv[0] == "mode" && kv.Length > 1) forcedMode = kv[1];
+                if (kv[0] == "shot") shot = kv.Length > 1 ? kv[1] : "1";
+                if (kv[0] == "video") ui.SetCleanCapture();
+                if (kv[0] == "char" && kv.Length > 1 && int.TryParse(kv[1], out int c))
+                    shotChar = Mathf.Clamp(c, 0, Characters.All.Length - 1);
                 if (kv[0] == "world" && kv.Length > 1 && int.TryParse(kv[1], out int w))
                     forcedWorld = Mathf.Clamp(w, 0, Themes.All.Length - 1);
             }

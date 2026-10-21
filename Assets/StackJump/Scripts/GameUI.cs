@@ -10,11 +10,11 @@ namespace StackJump
     // The canvas keeps its short side at 1080 units, so layouts hold in landscape and portrait.
     public class GameUI : MonoBehaviour
     {
-        public const string Title = "STACK <color=#FFD23A>HOP</color>";
+        public const string Title = "BLOBBY <color=#FFD23A>STACK</color>";
 
         public Action OnPlay, OnDaily, OnVersus, OnPrevChar, OnNextChar, OnPrevWorld, OnNextWorld;
-        public Action OnRevive, OnRetry, OnDoubleCoins, OnHome, OnSound, OnGift, OnRematch;
-        public Action<bool> OnClaim;
+        public Action OnRetry, OnDoubleCoins, OnHome, OnSound, OnGift, OnRematch;
+        public Action<bool> OnClaim, OnRevive; // OnRevive(true) = pay with coins
 
         public static readonly Color Gold = new(1f, 0.85f, 0.25f);
         public static readonly Color P1Color = Mats.Hex("FF6FA0");
@@ -45,7 +45,8 @@ namespace StackJump
         // Game over
         RectTransform card;
         Text overTitle, overScore, overBest, overNew, overUnlock, overCoins;
-        GameButton revive, retry, doubleCoins;
+        GameButton reviveAd, reviveCoins, retry, doubleCoins;
+        Text tutorial, shotTitle;
 
         // Versus result
         RectTransform versusCard;
@@ -84,6 +85,12 @@ namespace StackJump
             // Between the score block at the top and the character in the middle.
             banner = UIKit.Label(canvasRect, "", 76, new Vector2(0.5f, 0.5f), new Vector2(0, 170));
             soundButton = UIKit.Button(canvasRect, "", Icon.Sound, Purple, new Vector2(1f, 1f), new Vector2(-80, -80), new Vector2(96, 96), () => OnSound?.Invoke(), true);
+            tutorial = UIKit.Label(canvasRect, "TAP OR PRESS SPACE\nTO JUMP OVER THE BLOCKS!", 60, new Vector2(0.5f, 0f), new Vector2(0, 230), Color.white);
+            tutorial.rectTransform.sizeDelta = new Vector2(1400, 200);
+            tutorial.gameObject.SetActive(false);
+            shotTitle = UIKit.Label(canvasRect, Title, 190, new Vector2(0.5f, 1f), new Vector2(0, -180), null, TextAnchor.MiddleCenter, 1.4f);
+            shotTitle.supportRichText = true;
+            shotTitle.gameObject.SetActive(false);
 
             UpdateLayout();
             ShowMenu(new MenuInfo());
@@ -149,7 +156,7 @@ namespace StackJump
             play = UIKit.Button(menu.transform, "PLAY", Icon.Play, Green, new Vector2(0.5f, 0f), new Vector2(0, 150), new Vector2(460, 150), () => OnPlay?.Invoke());
             play.Pulse = true;
             daily = UIKit.Button(menu.transform, "DAILY", Icon.Trophy, Purple, new Vector2(0.5f, 0f), new Vector2(-480, 150), new Vector2(380, 120), () => OnDaily?.Invoke());
-            dailyBadge = UIKit.Label(daily.transform, "", 36, new Vector2(0.5f, 1f), new Vector2(0, 26), Gold);
+            dailyBadge = UIKit.Label(daily.transform, "", 42, new Vector2(0.5f, 1f), new Vector2(0, 26), Gold);
             versus = UIKit.Button(menu.transform, "2 PLAYER", Icon.Users, Blue, new Vector2(0.5f, 0f), new Vector2(480, 150), new Vector2(380, 120), () => OnVersus?.Invoke());
         }
 
@@ -175,7 +182,10 @@ namespace StackJump
             overNew.rectTransform.localRotation = Quaternion.Euler(0, 0, -12f);
             overUnlock = UIKit.Label(over.transform, "", 44, new Vector2(0.5f, 0.5f), new Vector2(0, -150), Gold);
 
-            revive = UIKit.Button(over.transform, "REVIVE", Icon.Video, Orange, new Vector2(0.5f, 0.5f), new Vector2(0, -260), new Vector2(460, 125), () => OnRevive?.Invoke());
+            // Revive offers use the same size, font and color as PLAY AGAIN (CrazyGames ad rules:
+            // the skip option must match the reward button).
+            reviveAd = UIKit.Button(over.transform, "REVIVE", Icon.Video, Green, new Vector2(0.5f, 0.5f), new Vector2(0, -260), new Vector2(460, 125), () => OnRevive?.Invoke(false));
+            reviveCoins = UIKit.Button(over.transform, "REVIVE 100", Icon.Coin, Green, new Vector2(0.5f, 0.5f), new Vector2(0, -260), new Vector2(460, 125), () => OnRevive?.Invoke(true));
             retry = UIKit.Button(over.transform, "PLAY AGAIN", Icon.Retry, Green, new Vector2(0.5f, 0.5f), new Vector2(0, -405), new Vector2(460, 125), () => OnRetry?.Invoke());
             UIKit.Button(over.transform, "", Icon.Home, Purple, new Vector2(0.5f, 0.5f), new Vector2(-330, -405), new Vector2(110, 110), () => OnHome?.Invoke(), true);
         }
@@ -201,12 +211,12 @@ namespace StackJump
             var c = UIKit.Img(rewardModal.transform, "Card", UIKit.Rounded, new Color(0.12f, 0.06f, 0.26f, 0.95f), new Vector2(0.5f, 0.5f), new Vector2(0, 60), new Vector2(1020, 520), true).rectTransform;
             UIKit.Img(c, "Gift", UIKit.IconSprite(Icon.Gift), Orange, new Vector2(0.5f, 1f), new Vector2(-300, -70), new Vector2(70, 70));
             UIKit.Label(c, "DAILY REWARD", 76, new Vector2(0.5f, 1f), new Vector2(30, -70));
-            UIKit.Label(c, "COME BACK EVERY DAY FOR BIGGER REWARDS!", 32, new Vector2(0.5f, 1f), new Vector2(0, -138), new Color(1, 1, 1, 0.75f));
+            UIKit.Label(c, "COME BACK EVERY DAY FOR BIGGER REWARDS!", 38, new Vector2(0.5f, 1f), new Vector2(0, -138), new Color(1, 1, 1, 0.75f));
             for (int i = 0; i < Daily.Rewards.Length; i++)
             {
                 float x = (i - 3) * 136f;
                 var tile = UIKit.Img(c, "Tile", UIKit.Rounded, Color.white, new Vector2(0.5f, 0.5f), new Vector2(x, -30), new Vector2(124, 190), true);
-                UIKit.Label(tile.transform, "DAY " + (i + 1), 30, new Vector2(0.5f, 1f), new Vector2(0, -26));
+                UIKit.Label(tile.transform, "DAY " + (i + 1), 34, new Vector2(0.5f, 1f), new Vector2(0, -26));
                 rewardCoins.Add(UIKit.Img(tile.transform, "Coin", UIKit.IconSprite(Icon.Coin), Gold, new Vector2(0.5f, 0.5f), new Vector2(0, 4), new Vector2(54, 54)));
                 var amount = UIKit.Label(tile.transform, Daily.Rewards[i].ToString(), 38, new Vector2(0.5f, 0f), new Vector2(0, 32));
                 var check = UIKit.Img(tile.transform, "Check", UIKit.IconSprite(Icon.Check), Green, new Vector2(0.5f, 0.5f), new Vector2(0, 4), new Vector2(80, 80));
@@ -294,8 +304,8 @@ namespace StackJump
 
         public struct GameOverInfo
         {
-            public int Score, Best, Coins, DailyGoal, DailyBest;
-            public bool NewBest, CanRevive, CanDouble, Daily, DailyJustDone;
+            public int Score, Best, Coins, DailyGoal, DailyBest, ReviveCost;
+            public bool NewBest, CanReviveAd, CanReviveCoins, CanDouble, Daily, DailyJustDone;
             public string Unlock;
         }
 
@@ -320,10 +330,44 @@ namespace StackJump
             overScore.text = info.Score.ToString();
             overCoins.text = "+" + info.Coins;
             doubleCoins.gameObject.SetActive(info.CanDouble);
-            revive.gameObject.SetActive(info.CanRevive);
-            revive.Pulse = info.CanRevive;
-            retry.Pulse = !info.CanRevive;
+            reviveAd.gameObject.SetActive(info.CanReviveAd);
+            reviveCoins.gameObject.SetActive(info.CanReviveCoins);
+            reviveCoins.Text.text = "REVIVE " + info.ReviveCost;
+            reviveCoins.SetIcon(Icon.Coin, Gold);
+            // Side by side when both revive options are offered.
+            bool both = info.CanReviveAd && info.CanReviveCoins;
+            SetButtonX(reviveAd, both ? -240f : 0f);
+            SetButtonX(reviveCoins, both ? 240f : 0f);
+            retry.Pulse = !info.CanReviveAd && !info.CanReviveCoins;
             overT = 0f;
+        }
+
+        static void SetButtonX(GameButton b, float x)
+        {
+            var rt = (RectTransform)b.transform;
+            rt.anchoredPosition = new Vector2(x, rt.anchoredPosition.y);
+        }
+
+        public void HideRewardedButtons()
+        {
+            reviveAd.gameObject.SetActive(false);
+            doubleCoins.gameObject.SetActive(false);
+            if (reviveCoins.gameObject.activeSelf) SetButtonX(reviveCoins, 0f);
+        }
+
+        // First run: a pulsing hint until the player clears a block.
+        public void ShowTutorial(bool show) => tutorial.gameObject.SetActive(show);
+
+        // Cover-image mode: no UI except a big title.
+        public void ShowShot(bool portrait)
+        {
+            HideAll();
+            soundButton.gameObject.SetActive(false);
+            banner.gameObject.SetActive(false);
+            shotTitle.gameObject.SetActive(true);
+            shotTitle.fontSize = portrait ? 150 : 190;
+            shotTitle.rectTransform.anchoredPosition = new Vector2(0, portrait ? -230 : -180);
+            shotTitle.rectTransform.sizeDelta = new Vector2(1800, shotTitle.fontSize * 1.5f);
         }
 
         public void SetDoubledCoins(int coins)
@@ -371,6 +415,9 @@ namespace StackJump
             over.SetActive(false);
             versusOver.SetActive(false);
         }
+
+        // Preview-video recording: hide the always-on sound button.
+        public void SetCleanCapture() => soundButton.gameObject.SetActive(false);
 
         public void SetMuted(bool muted) => soundButton.SetIcon(muted ? Icon.Mute : Icon.Sound, Color.white);
 
@@ -450,6 +497,12 @@ namespace StackJump
             {
                 SetAlpha(banner, Mathf.Min(Mathf.InverseLerp(0f, 0.25f, bannerT), 1f - Mathf.InverseLerp(1.8f, 2.4f, bannerT)));
                 banner.rectTransform.localScale = Vector3.one * (bannerT < 0.25f ? Mathf.Lerp(1.4f, 1f, bannerT / 0.25f) : 1f);
+            }
+
+            if (tutorial.gameObject.activeSelf)
+            {
+                float tp = 1f + Mathf.Sin(Time.unscaledTime * 5f) * 0.06f;
+                tutorial.rectTransform.localScale = new Vector3(tp, tp, 1f);
             }
 
             if (versusHud.activeSelf)

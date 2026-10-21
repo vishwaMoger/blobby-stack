@@ -46,6 +46,13 @@
       // Cap the render resolution so high-DPI phones stay smooth.
       devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
     };
+    // Preview-video recording (?video): no mouse cursor in the footage.
+    if (/[?&]video/.test(location.search)) canvas.style.cursor = "none";
+    // Cover-image capture (?shot): exact 1:1 pixels and a readable drawing buffer.
+    if (/[?&]shot/.test(location.search)) {
+      config.devicePixelRatio = 1;
+      config.webglContextAttributes = { preserveDrawingBuffer: true };
+    }
 
     var script = document.createElement("script");
     script.src = buildUrl + "/{{{ LOADER_FILENAME }}}";

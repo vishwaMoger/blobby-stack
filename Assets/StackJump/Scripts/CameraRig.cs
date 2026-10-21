@@ -6,7 +6,7 @@ namespace StackJump
     [RequireComponent(typeof(Camera))]
     public class CameraRig : MonoBehaviour
     {
-        const float Distance = 8.2f;
+        public float Distance = 8.2f;
 
         public float TargetY;
         public float CenterX; // x of the tower this camera follows (split screen)

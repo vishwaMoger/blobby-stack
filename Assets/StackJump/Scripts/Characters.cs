@@ -69,7 +69,8 @@ namespace StackJump
             for (int i = 0; i < Arms.Count; i++)
             {
                 float side = i % 2 == 0 ? -1f : 1f;
-                Arms[i].localRotation = Quaternion.Euler(0, 0, side * Mathf.Lerp(-20f, -115f, t));
+                // Positive angles swing the left arm outward (-x), the right arm the other way.
+                Arms[i].localRotation = Quaternion.Euler(0, 0, side * Mathf.Lerp(20f, 115f, t));
             }
         }
     }
@@ -132,7 +133,7 @@ namespace StackJump
             {
                 var pivot = new GameObject("Arm").transform;
                 pivot.SetParent(rig.Squash, false);
-                pivot.localPosition = new Vector3(side * 0.36f, 0.36f, -0.02f);
+                pivot.localPosition = new Vector3(side * 0.39f, 0.36f, -0.04f);
                 rig.Arms.Add(pivot);
                 if (robot)
                     Part(pivot, MeshFactory.RoundedBox(new Vector3(0.1f, 0.26f, 0.1f), 0.04f), color, new Vector3(0, -0.12f, 0), Vector3.one, 0.6f);

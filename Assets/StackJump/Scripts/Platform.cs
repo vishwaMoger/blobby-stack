@@ -24,6 +24,19 @@ namespace StackJump
         public static bool AdPlaying { get; private set; }
         public static bool UserMuted { get; private set; }
 
+        // Ads are compiled in only for the Full Launch build (SJ_ADS). Basic Launch has ads
+        // disabled by CrazyGames, and rewarded buttons that do nothing get a game rejected.
+#if SJ_ADS
+        public const bool AdsEnabled = true;
+#else
+        public const bool AdsEnabled = false;
+#endif
+        static bool adblock, adsBroken;
+
+        // Whether a rewarded button should be shown at all: never with ad blockers, never after
+        // an ad has failed this session, and never when ads aren't part of this build.
+        public static bool RewardedAvailable => AdsEnabled && ready && !adblock && !adsBroken;
+
         // Hosts the timeout coroutines; unaffected by Time.timeScale.
         class Runner : MonoBehaviour { }
 
@@ -72,6 +85,7 @@ namespace StackJump
                         sdkMuted = s.muteAudio;
                         ApplyAudio();
                     }));
+                    if (AdsEnabled) Safe(() => CrazySDK.Ad.HasAdblock(blocked => adblock = blocked));
                     Finish();
                 });
             }
@@ -110,7 +124,7 @@ namespace StackJump
         // Between runs. CrazyGames also rate-limits, but keep them sparse for retention.
         public static void Midgame(Action done)
         {
-            if (!ready || Time.realtimeSinceStartup - lastMidgame < 90f)
+            if (!AdsEnabled || !ready || adblock || Time.realtimeSinceStartup - lastMidgame < 90f)
             {
                 done?.Invoke();
                 return;
@@ -119,14 +133,19 @@ namespace StackJump
             RequestAd(CrazyAdType.Midgame, _ => done?.Invoke());
         }
 
+        // Callers only offer rewarded ads when RewardedAvailable; an error never grants the reward.
         public static void Rewarded(Action<bool> done)
         {
-            if (!ready)
+            if (!RewardedAvailable)
             {
-                done?.Invoke(true); // no ads off-platform: grant the reward so the flow is testable
+                done?.Invoke(false);
                 return;
             }
-            RequestAd(CrazyAdType.Rewarded, done);
+            RequestAd(CrazyAdType.Rewarded, ok =>
+            {
+                if (!ok) adsBroken = true; // hide rewarded buttons for the rest of the session
+                done?.Invoke(ok);
+            });
         }
 
         static void RequestAd(CrazyAdType type, Action<bool> done)
