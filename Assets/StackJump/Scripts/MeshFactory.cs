@@ -195,9 +195,14 @@ namespace StackJump
             return m;
         }
 
+        // Vertex colors bypass the gamma-to-linear conversion material colors get, so convert by hand.
+        static Color VertexColor(Color c) => QualitySettings.activeColorSpace == ColorSpace.Linear ? c.linear : c;
+
         // Vertical silhouette strip: ridge line on top, fading to bottomColor below.
         public static Mesh Ridge(IList<Vector2> ridge, float bottomY, float z, Color top, Color bottom)
         {
+            top = VertexColor(top);
+            bottom = VertexColor(bottom);
             var verts = new List<Vector3>();
             var cols = new List<Color>();
             var uvs = new List<Vector2>();

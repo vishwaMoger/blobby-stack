@@ -12,6 +12,7 @@ Shader "StackJump/Toon"
         _Grad("Vertical Gradient", Range(0,1)) = 0
         _GradHeight("Gradient Height", Float) = 0.6
         _Flat("Flat", Range(0,1)) = 0
+        _FogAmount("Fog Amount", Range(0,1)) = 1
     }
     SubShader
     {
@@ -37,6 +38,7 @@ Shader "StackJump/Toon"
                 half _Grad;
                 float _GradHeight;
                 half _Flat;
+                half _FogAmount;
             CBUFFER_END
 
             // Set per world from script.
@@ -89,7 +91,7 @@ Shader "StackJump/Toon"
 
                 col = lerp(col, _BaseColor.rgb, _Flat);
                 col += _BaseColor.rgb * _Emission;
-                col = MixFog(col, i.fogFactor);
+                col = lerp(col, MixFog(col, i.fogFactor), _FogAmount);
                 return half4(col, 1);
             }
             ENDHLSL

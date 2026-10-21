@@ -47,7 +47,8 @@ namespace StackJump
             go.transform.localPosition = pos;
             go.transform.localScale = scale;
             var r = Mats.AddRenderer(go, mesh, Mats.Toon);
-            Mats.Set(r, color, gloss, emission, 0f, flat, 0.1f);
+            // Light fog only, so distant silhouettes keep their contrast against the sky.
+            Mats.Set(r, color, gloss, emission, 0f, flat, 0.1f, 0.3f);
             return r;
         }
 
@@ -124,7 +125,7 @@ namespace StackJump
 
         static void Mountains(Transform root, WorldTheme th)
         {
-            Ridge(root, th, 88f, 2f, 16f, 0.035f, th.Seed, Color.Lerp(th.Far, th.Fog, 0.35f), true);
+            Ridge(root, th, 88f, 2f, 16f, 0.035f, th.Seed, Color.Lerp(th.Far, th.Fog, 0.25f), true);
             Ridge(root, th, 66f, -1f, 12f, 0.045f, th.Seed + 3, Color.Lerp(th.Far, th.Near, 0.5f), true);
             Ridge(root, th, 44f, -4f, 6f, 0.03f, th.Seed + 7, th.Near, false);
         }

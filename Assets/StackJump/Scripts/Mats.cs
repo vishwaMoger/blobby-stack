@@ -12,6 +12,7 @@ namespace StackJump
         static readonly int GradId = Shader.PropertyToID("_Grad");
         static readonly int FlatId = Shader.PropertyToID("_Flat");
         static readonly int TopBoostId = Shader.PropertyToID("_TopBoost");
+        static readonly int FogAmountId = Shader.PropertyToID("_FogAmount");
 
         static Material toon, unlit, sky, unlitOpaque, unlitAlpha, unlitAdd;
         static MaterialPropertyBlock block;
@@ -39,7 +40,7 @@ namespace StackJump
         }
 
         // Per-renderer look for the toon material.
-        public static void Set(Renderer r, Color color, float gloss = 0.25f, float emission = 0f, float grad = 0f, float flat = 0f, float topBoost = 0.12f)
+        public static void Set(Renderer r, Color color, float gloss = 0.25f, float emission = 0f, float grad = 0f, float flat = 0f, float topBoost = 0.12f, float fog = 1f)
         {
             block ??= new MaterialPropertyBlock();
             r.GetPropertyBlock(block);
@@ -49,6 +50,7 @@ namespace StackJump
             block.SetFloat(GradId, grad);
             block.SetFloat(FlatId, flat);
             block.SetFloat(TopBoostId, topBoost);
+            block.SetFloat(FogAmountId, fog);
             r.SetPropertyBlock(block);
         }
 

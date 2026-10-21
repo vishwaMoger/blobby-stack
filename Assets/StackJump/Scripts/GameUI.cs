@@ -28,7 +28,8 @@ namespace StackJump
 
         public void Init()
         {
-            font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            font = Resources.Load<Font>("Fonts/LilitaOne-Regular");
+            if (font == null) font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             rounded = MakeRoundedSprite();
 
             var go = new GameObject("UI", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
@@ -48,7 +49,7 @@ namespace StackJump
             perfect.color = Gold;
 
             menu = Panel("Menu");
-            var title = Label(menu, Title, 150, new Vector2(0.5f, 1f), new Vector2(0, -250));
+            var title = Label(menu, Title, 180, new Vector2(0.5f, 1f), new Vector2(0, -250));
             title.color = Color.white;
             best = Label(menu, "BEST 0", 60, new Vector2(0.5f, 1f), new Vector2(0, -390));
             tapMenu = Label(menu, "TAP TO PLAY", 76, new Vector2(0.5f, 0f), new Vector2(0, 470));
@@ -206,7 +207,7 @@ namespace StackJump
 
         Text Label(GameObject parent, string text, int size, Vector2 anchor, Vector2 pos)
         {
-            var go = new GameObject("Text", typeof(RectTransform), typeof(Text), typeof(Outline), typeof(Shadow));
+            var go = new GameObject("Text", typeof(RectTransform), typeof(Text), typeof(GameOutline));
             go.transform.SetParent(parent.transform, false);
             var rt = (RectTransform)go.transform;
             rt.anchorMin = rt.anchorMax = anchor;
@@ -216,19 +217,16 @@ namespace StackJump
             var t = go.GetComponent<Text>();
             t.font = font;
             t.fontSize = size;
-            t.fontStyle = FontStyle.Bold;
+            t.fontStyle = FontStyle.Normal;
             t.alignment = TextAnchor.MiddleCenter;
             t.horizontalOverflow = HorizontalWrapMode.Overflow;
             t.verticalOverflow = VerticalWrapMode.Overflow;
             t.color = Color.white;
             t.raycastTarget = false;
             t.text = text;
-            var outline = go.GetComponent<Outline>();
-            outline.effectColor = new Color(0.12f, 0.05f, 0.25f, 0.55f);
-            outline.effectDistance = new Vector2(Mathf.Max(3, size / 28f), -Mathf.Max(3, size / 28f));
-            var shadow = go.GetComponent<Shadow>();
-            shadow.effectColor = new Color(0f, 0f, 0f, 0.3f);
-            shadow.effectDistance = new Vector2(0, -Mathf.Max(5, size / 18f));
+            var outline = go.GetComponent<GameOutline>();
+            outline.Size = Mathf.Max(3f, size / 15f);
+            outline.ShadowOffset = new Vector2(0f, -Mathf.Max(4f, size / 11f));
             return t;
         }
 

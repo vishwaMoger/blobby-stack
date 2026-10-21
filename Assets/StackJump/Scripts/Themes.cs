@@ -110,7 +110,7 @@ namespace StackJump
                 Fog = H("FFB3A6"), Shade = H("C96A8F"), Rim = H("FFF0D0"), Light = H("FFF4E6"),
                 Ground = H("E9A15A"),
                 Palette = new[] { H("F7D25C"), H("EFC24A"), H("FADF7A"), H("E8B23E") }, BlockLayers = 1,
-                Backdrop = BackdropKind.Mountains, Near = H("C93A78"), Far = H("E2689F"), Accent = H("E0464E"),
+                Backdrop = BackdropKind.Mountains, Near = H("7E1F5A"), Far = H("B83C7E"), Accent = H("E0464E"),
             },
             new WorldTheme
             {
@@ -130,7 +130,7 @@ namespace StackJump
                 Fog = H("F7D0A6"), Shade = H("C98A80"), Rim = H("FFFFFF"), Light = H("FFF8EC"),
                 Ground = H("E0A070"),
                 Palette = new[] { H("F2A48C"), H("E8846E"), H("F5BB98"), H("DA6E62") }, BlockLayers = 1,
-                Backdrop = BackdropKind.Castle, Near = H("E7A57E"), Far = H("D9937A"), Accent = H("FFE7B0"),
+                Backdrop = BackdropKind.Castle, Near = H("D2876A"), Far = H("A8584F"), Accent = H("FFD27A"),
             },
             new WorldTheme
             {
