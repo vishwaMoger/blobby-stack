@@ -35,6 +35,9 @@ crashlytics-build.properties
 *.aab
 *.unitypackage
 
+# Trailer review stills (regenerated with every trailer render)
+/Submission/trailer/frames-*/
+
 # OS
 .DS_Store
 Thumbs.db

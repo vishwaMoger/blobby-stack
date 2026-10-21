@@ -215,6 +215,9 @@ namespace StackJump.EditorTools
             EditorApplication.EnterPlaymode();
         }
 
+        // Same Play-mode entry for the trailer: SJ_ARGS="trailer" and SJ_TRAILER="outDir|coverDir".
+        public static void CaptureTrailer() => CaptureCovers();
+
         // ---------- Builds ----------
 
         public static void BuildDev() => Build("Builds/WebGL-dev", WebGLCompressionFormat.Disabled, WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly, true);

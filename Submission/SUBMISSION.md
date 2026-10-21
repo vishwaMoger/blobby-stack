@@ -64,14 +64,19 @@ All three required sizes, rendered from the game itself and titled with the in-g
 They follow the cover rules: only the title as text, no borders, icons, store logos or "Play" words, and
 the same look across all three.
 
-| Size | Primary (Cosmos) | Alternative (Sunset Farm) |
-|---|---|---|
-| Landscape 1920×1080 | `covers/cosmos-landscape-1920x1080.png` | `covers/farm-landscape-1920x1080.png` |
-| Portrait 800×1200 | `covers/cosmos-portrait-800x1200.png` | `covers/farm-portrait-800x1200.png` |
-| Square 800×800 | `covers/cosmos-square-800x800.png` | `covers/farm-square-800x800.png` |
+Four sets, one per world. Each set has the same three files, named `<set>-landscape-1920x1080.png`,
+`<set>-portrait-800x1200.png` and `<set>-square-800x800.png` in `covers/`:
 
-The Cosmos set is the recommended pick: the purple matches the game's UI and the mascot pops against it.
-Upload one set only; the three must match each other.
+| Set | Look |
+|---|---|
+| **cosmos** (recommended) | Purple space, ringed planet; matches the game's UI and the trailer's opening frame |
+| farm | Pink sunset sky, hay bales, red tractors |
+| neon | Synthwave grid, glowing chips |
+| beanstalk | Bright blue sky, clouds, giant beanstalks |
+
+Upload one set only; the three sizes must match each other. If you pick a set other than cosmos,
+re-render the trailer so its opening frame matches (see section 4).
+The `raw-*.png` files are untitled renders used to build the covers; don't upload those.
 
 **Regenerating covers** (other worlds, other characters):
 
@@ -84,21 +89,31 @@ python Tools\compose_covers.py castle
 
 ---
 
-## 4. Preview video (optional but strongly recommended)
+## 4. Preview trailer
 
-**Spec:** 15–20 s, no sound, max 50 MB. Both **landscape 1080p (1920×1080)** and **portrait 2:3 (1080×1620)** are required.
-Start on the static cover, then gameplay. No black bars, no logo intros, no mouse cursor, no "Play Now" text,
-and don't fast-forward.
+| File | Format |
+|---|---|
+| `trailer/trailer-landscape.mp4` | 1920×1080, 30 fps, H.264, 18.5 s, no audio |
+| `trailer/trailer-portrait.mp4` | 1080×1620 (2:3), 30 fps, H.264, 18.5 s, no audio |
 
-**How to record:**
-1. Serve the dev build (`python -m http.server 8765 --directory Builds/WebGL-dev`).
-2. Open `http://localhost:8765/?autoplay&soak&video&world=0` in Chrome at exactly 1920×1080
-   (DevTools → device toolbar → Responsive 1920×1080). `video` hides the cursor and sound button;
-   `autoplay&soak` plays perfectly and climbs into the next worlds.
-3. Record with **Xbox Game Bar** (Win+Alt+R) or OBS for about 25 s, then trim to 18 s in **Clipchamp**:
-   cover image first (1 s), then the climb. Ideally show a world change (around block 20) and a PERFECT streak.
-4. For portrait, repeat with the device toolbar at 1080×1620.
-5. Optional: a 2 Player clip with `?autoplay&mode=versus&video`.
+Both meet the spec: 15–20 s, under 50 MB, no sound, no black bars, no logo intro, no cursor, no promo text,
+real-time speed (not fast-forwarded), and they open on the static cover.
+
+**Cut:** cover (1.5 s) → solo climb with HUD, PERFECT streaks and coins, crossing from Cosmos into the Beanstalk
+world (11 s) → 2 Player split-screen race on the farm (5 s) → cover (1 s).
+
+The trailers are rendered from the real game in the Unity Editor, frame by frame at a fixed 1/30 s step, and
+encoded with Unity's built-in H.264 encoder. The `frames-*` folders hold preview stills of each clip.
+
+**Re-rendering** (for example after gameplay changes, or with another cover set):
+
+```powershell
+$env:SJ_ARGS = "trailer"
+$env:SJ_TRAILER = "C:\Crazygames\StackJump\Submission\trailer|C:\Crazygames\StackJump\Submission\covers"
+& "C:\Program Files\Unity\Hub\Editor\6000.4.5f1\Editor\Unity.exe" -batchmode -projectPath C:\Crazygames\StackJump -buildTarget WebGL -executeMethod StackJump.EditorTools.StackJumpSetup.CaptureTrailer
+```
+
+To open on a different cover set, change the cover file names in `TrailerDirector.Start`.
 
 ---
 
@@ -122,7 +137,7 @@ Legend: ✅ done and verified here · 🟡 done, needs your check on a real devi
 | No memory growth in long sessions | ✅ | Soak test: score 83 across several worlds, memory flat at 97 MB |
 | 60 fps on desktop | ✅ | Steady 60 fps, worst frame 19 ms (heaviest world, and with 2 cameras in 2P) |
 | `user-select: none` on the page | ✅ | In the WebGL template |
-| Physics independent of refresh rate | ✅ | Time-based movement, capped time step, substepped springs |
+| Physics independent of refresh rate | ✅ | Exact constant-gravity jump arc (fixed: at 30 fps the old integration lost height and made jumps fail), time-based movement, substepped springs |
 | Runs smoothly on a 4 GB Chromebook | 🟡 | Untested. Shadows and bloom are the heaviest parts |
 | Mobile: touch, safe areas, performance | 🟡 | Touch input is built in; test on a real phone (iOS is disabled by default for Unity games) |
 | Works in Chrome and Edge | 🟡 | Developed against Chromium; check Edge once |
@@ -162,7 +177,7 @@ Legend: ✅ done and verified here · 🟡 done, needs your check on a real devi
 | Landscape 1920×1080, portrait 800×1200, square 800×800 | ✅ | `covers/` |
 | Only the title as text; no borders or icons | ✅ | |
 | Description, controls, tags | ✅ | Section 2 |
-| Preview video, landscape and portrait | ⬜ | Section 4 |
+| Preview video, landscape and portrait | ✅ | `trailer/`, section 4 |
 
 ### Before you press submit
 
@@ -170,4 +185,4 @@ Legend: ✅ done and verified here · 🟡 done, needs your check on a real devi
    window), menu, character shop, daily reward, Daily Tower, 2 Player, game over → play again.
 2. Check it at the smallest preview size (800×450) and on a phone.
 3. Pick the cover set (Cosmos recommended) and fill in the text from section 2.
-4. Optional: record the preview videos (section 4).
+4. Upload both trailers from `trailer/`.

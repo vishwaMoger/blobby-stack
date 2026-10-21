@@ -86,9 +86,11 @@ namespace StackJump
             }
             else if (!Grounded)
             {
-                vy -= Gravity * dt;
+                // Exact constant-gravity step: the arc is identical at 30, 60 or 144 fps, so jump
+                // timing feels the same on every display (CrazyGames requirement).
                 var p = transform.position;
-                p.y += vy * dt;
+                p.y += vy * dt - 0.5f * Gravity * dt * dt;
+                vy -= Gravity * dt;
                 float ground = support();
                 if (vy < 0f && p.y <= ground)
                 {

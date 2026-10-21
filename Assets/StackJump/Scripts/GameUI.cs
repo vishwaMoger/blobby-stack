@@ -26,6 +26,8 @@ namespace StackJump
         static readonly Color Grey = Mats.Hex("8C86A0");
         static readonly Color IconDark = Mats.Hex("4A2A8A");
 
+        Canvas canvas;
+        Camera captureCam;
         CanvasScaler scaler;
         RectTransform canvasRect, popupLayer;
         GameObject menu, hud, versusHud, over, versusOver, rewardModal;
@@ -67,7 +69,7 @@ namespace StackJump
         public void Init()
         {
             var go = new GameObject("UI", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
-            var canvas = go.GetComponent<Canvas>();
+            canvas = go.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 10;
             scaler = go.GetComponent<CanvasScaler>();
@@ -107,7 +109,7 @@ namespace StackJump
             UIKit.Img(hud.transform, "Coin", UIKit.IconSprite(Icon.Coin), Gold, new Vector2(0f, 1f), new Vector2(80, -80), new Vector2(64, 64));
             hudCoins = UIKit.Label(hud.transform, "0", 58, new Vector2(0f, 1f), new Vector2(940, -82), null, TextAnchor.MiddleLeft);
             // Left of the tower, so it never covers the character; "+N" popups go on the right.
-            perfect = UIKit.Label(hud.transform, "PERFECT!", 84, new Vector2(0.5f, 0.5f), new Vector2(-330, 120), Gold);
+            perfect = UIKit.Label(hud.transform, "PERFECT!", 84, new Vector2(0.5f, 0.5f), new Vector2(-330, 10), Gold);
         }
 
         void BuildVersusHud()
@@ -416,6 +418,39 @@ namespace StackJump
             versusOver.SetActive(false);
         }
 
+        // Trailer rendering: draw the UI through a camera (on the UI layer) so it lands in the
+        // captured frames, sized to that camera's render target instead of the screen.
+        // The game cameras render into `gameFrame`, shown here as a full-screen backdrop behind the
+        // HUD, so the UI camera's output is the finished frame.
+        public void SetCaptureCamera(Camera uiCamera, Texture gameFrame)
+        {
+            captureCam = uiCamera;
+            canvas.renderMode = RenderMode.ScreenSpaceCamera;
+            canvas.worldCamera = uiCamera;
+            canvas.planeDistance = 1f;
+            canvas.gameObject.layer = 5;
+            soundButton.gameObject.SetActive(false);
+            landscape = null;
+
+            if (captureBackdrop == null)
+            {
+                var rt = UIKit.Rect(canvasRect, "CaptureBackdrop", Vector2.zero, Vector2.zero, Vector2.zero);
+                rt.anchorMin = Vector2.zero;
+                rt.anchorMax = Vector2.one;
+                rt.offsetMin = rt.offsetMax = Vector2.zero;
+                rt.SetAsFirstSibling();
+                captureBackdrop = rt.gameObject.AddComponent<RawImage>();
+                captureBackdrop.raycastTarget = false;
+            }
+            captureBackdrop.texture = gameFrame;
+        }
+
+        RawImage captureBackdrop;
+
+        Vector2 ScreenSize() => captureCam != null && captureCam.targetTexture != null
+            ? new Vector2(captureCam.targetTexture.width, captureCam.targetTexture.height)
+            : new Vector2(Screen.width, Screen.height);
+
         // Preview-video recording: hide the always-on sound button.
         public void SetCleanCapture() => soundButton.gameObject.SetActive(false);
 
@@ -433,18 +468,21 @@ namespace StackJump
             perfectT = 0f;
         }
 
-        public void Banner(string text, int size = 76)
+        public void Banner(string text, int size = 76, float duration = 2.4f)
         {
             banner.text = text;
             banner.fontSize = size;
             banner.rectTransform.sizeDelta = new Vector2(1600, size * 1.5f);
             bannerT = 0f;
+            bannerDuration = duration;
         }
+
+        float bannerDuration = 2.4f;
 
         public void PopupAt(Camera cam, Vector3 world, string text, Color color)
         {
             Vector3 screen = cam.WorldToScreenPoint(world);
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(popupLayer, screen, null, out var local);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(popupLayer, screen, captureCam, out var local);
             var t = UIKit.Label(popupLayer, text, 90, new Vector2(0.5f, 0.5f), local, color);
             popups.Add(new Popup { Text = t, T = 0f, Start = local });
         }
@@ -453,11 +491,18 @@ namespace StackJump
 
         void UpdateLayout()
         {
-            bool isLandscape = Screen.width >= Screen.height;
+            var size = ScreenSize();
+            bool isLandscape = size.x >= size.y;
             if (landscape == isLandscape) return;
             landscape = isLandscape;
             scaler.referenceResolution = isLandscape ? new Vector2(1920, 1080) : new Vector2(1080, 1920);
             scaler.matchWidthOrHeight = isLandscape ? 1f : 0f;
+
+            // Portrait screens are taller, so the banner goes higher to stay clear of the character.
+            banner.rectTransform.anchoredPosition = new Vector2(0, isLandscape ? 170 : 420);
+            // Narrower screen: a smaller PERFECT callout so it stays inside the left edge.
+            perfect.fontSize = isLandscape ? 84 : 62;
+            perfect.rectTransform.anchoredPosition = new Vector2(isLandscape ? -330 : -280, 10);
 
             // Mode buttons flank PLAY in landscape and sit above it in portrait.
             ((RectTransform)daily.transform).anchoredPosition = isLandscape ? new Vector2(-480, 150) : new Vector2(-215, 330);
@@ -492,10 +537,10 @@ namespace StackJump
             }
 
             bannerT += dt;
-            banner.gameObject.SetActive(bannerT < 2.4f);
-            if (bannerT < 2.4f)
+            banner.gameObject.SetActive(bannerT < bannerDuration);
+            if (bannerT < bannerDuration)
             {
-                SetAlpha(banner, Mathf.Min(Mathf.InverseLerp(0f, 0.25f, bannerT), 1f - Mathf.InverseLerp(1.8f, 2.4f, bannerT)));
+                SetAlpha(banner, Mathf.Min(Mathf.InverseLerp(0f, 0.25f, bannerT), 1f - Mathf.InverseLerp(bannerDuration * 0.75f, bannerDuration, bannerT)));
                 banner.rectTransform.localScale = Vector3.one * (bannerT < 0.25f ? Mathf.Lerp(1.4f, 1f, bannerT / 0.25f) : 1f);
             }
 

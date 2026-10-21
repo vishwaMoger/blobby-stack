@@ -40,7 +40,7 @@ namespace StackJump
         float stateTime;
 
         // Test hooks: ?autoplay&soak&world=N&mode=daily|versus in the page URL.
-        bool autoplay, soak;
+        bool autoplay, soak, trailer;
         int forcedWorld = -1;
         string forcedMode = "", shot = "";
 
@@ -98,6 +98,18 @@ namespace StackJump
                 SetupShot();
                 return;
             }
+#if UNITY_EDITOR
+            if (trailer)
+            {
+                EnterMenu();
+                var director = gameObject.AddComponent<TrailerDirector>();
+                director.Game = this;
+                director.Cam = cam;
+                director.Cam2 = cam2;
+                director.UI = ui;
+                return;
+            }
+#endif
             // CrazyGames Full Launch: new players land directly in gameplay. Returning players get
             // the menu; the daily reward pops up once they come back to it after a run.
             bool firstTime = Save.Best == 0 && Save.Coins == 0 && Save.RewardDay == 0;
@@ -337,7 +349,9 @@ namespace StackJump
             Platform.GameplayStart();
         }
 
-        void StartVersus()
+        void StartVersus() => StartVersus(CountdownTime);
+
+        void StartVersus(float countdown)
         {
             if (state != State.Menu && state != State.Result && state != State.Busy) return;
             mode = Mode.Versus;
@@ -350,14 +364,15 @@ namespace StackJump
             p1.Player.SetCharacter(Characters.All[c1], false);
             p2.Player.SetCharacter(Characters.All[c2], false);
             // A 3-2-1 countdown gives both players time to get ready before the first blocks.
-            p1.Reset(-1, -1, CountdownTime + 0.3f);
-            p2.Reset(-1, 1, CountdownTime + 0.3f);
+            p1.Reset(-1, -1, countdown + 0.3f);
+            p2.Reset(-1, 1, countdown + 0.3f);
             p1.Active = p2.Active = true;
             runs++;
             state = State.Playing;
             stateTime = 0f;
-            countdownShown = -1;
+            countdownShown = countdown > 0.5f ? -1 : 4;
             ui.ShowVersusHud();
+            if (countdownShown == 4) ui.Banner("GO!", 200, 1f);
             Platform.GameplayStart();
         }
 
@@ -535,7 +550,6 @@ namespace StackJump
             if (mode == Mode.Versus)
             {
                 ui.SetVersusScore(lane == p1 ? 0 : 1, lane.Score);
-                if (perfect) ui.PopupAt(lane.Rig.Cam, new Vector3(lane.X - 1.4f, top + 0.9f, 0f), "PERFECT!", GameUI.Gold);
                 var other = lane == p1 ? p2 : p1;
                 if (other.Out && lane.Score > other.Score) EndVersus();
                 return;
@@ -589,7 +603,8 @@ namespace StackJump
                 fx.Sparkle(new Vector3(lane.X, lane.TopY + 0.1f, 0), Theme.Palette[0], 30);
                 fx.Ring(new Vector3(lane.X, lane.TopY + 0.02f, 0));
             }
-            if (autoplay) lane.AutoLead = soak ? 0.1f : Random.value < 0.08f ? 0.01f : Random.Range(0.07f, 0.34f);
+            // Trailer: never miss, but vary the timing so blocks land unevenly with some PERFECTs.
+            if (autoplay) lane.AutoLead = soak ? 0.1f : trailer ? Random.Range(0.11f, 0.24f) : Random.value < 0.08f ? 0.01f : Random.Range(0.07f, 0.34f);
 
             if (mode != Mode.Classic || state != State.Playing) return;
             int next = (startWorld + lane.Tower.Height / BlocksPerWorld) % Themes.All.Length;
@@ -623,7 +638,7 @@ namespace StackJump
             }
 
             ReadInput(out bool any, out bool left, out bool right, out bool released);
-            if (autoplay) AutoMenu(ref released);
+            if (autoplay && !trailer) AutoMenu(ref released);
 
             switch (state)
             {
@@ -653,7 +668,7 @@ namespace StackJump
                 if (step > countdownShown)
                 {
                     countdownShown = step;
-                    ui.Banner(step < 3 ? (3 - step).ToString() : "GO!", 200);
+                    ui.Banner(step < 3 ? (3 - step).ToString() : "GO!", 200, 1f);
                     if (step < 3) sfx.Click();
                     else
                     {
@@ -763,6 +778,35 @@ namespace StackJump
 #endif
         }
 
+        // ---------- Trailer (driven by TrailerDirector) ----------
+
+        // A solo run that starts partway up an uneven tower, so the clip reaches a world change.
+        public void TrailerSolo(int startAt, int preStack)
+        {
+            state = State.Menu;
+            startWorld = startAt;
+            StartRun(Mode.Classic);
+            var rng = new System.Random(3);
+            for (int i = 1; i <= preStack; i++)
+            {
+                var b = solo.Tower.CreateBlock(Theme, i);
+                b.transform.SetPositionAndRotation(new Vector3(((float)rng.NextDouble() - 0.5f) * 0.4f, 0, 0),
+                    Quaternion.Euler(0, ((float)rng.NextDouble() - 0.5f) * 10f, 0));
+                solo.Tower.Add(b);
+            }
+            solo.Score = preStack + 6;
+            solo.Player.ResetTo(solo.TopY);
+            rig.Snap(solo.TopY);
+            ui.SetScore(solo.Score, false);
+        }
+
+        public void TrailerVersus(int atWorld)
+        {
+            state = State.Busy;
+            startWorld = atWorld;
+            StartVersus(0f);
+        }
+
         // Called by CoverShooter right before each capture.
         public void ShotBurst()
         {
@@ -787,6 +831,7 @@ namespace StackJump
                 var kv = part.Split('=');
                 if (kv[0] == "autoplay") autoplay = true;
                 if (kv[0] == "soak") soak = true;
+                if (kv[0] == "trailer") trailer = autoplay = true;
                 if (kv[0] == "mode" && kv.Length > 1) forcedMode = kv[1];
                 if (kv[0] == "shot") shot = kv.Length > 1 ? kv[1] : "1";
                 if (kv[0] == "video") ui.SetCleanCapture();
