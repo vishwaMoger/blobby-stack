@@ -35,6 +35,9 @@ crashlytics-build.properties
 *.aab
 *.unitypackage
 
+# Upload staging folder (copies of the build, covers and trailers)
+/Submission/upload/
+
 # Trailer review stills (regenerated with every trailer render)
 /Submission/trailer/frames-*/
 
