@@ -64,19 +64,26 @@ All three required sizes, rendered from the game itself and titled with the in-g
 They follow the cover rules: only the title as text, no borders, icons, store logos or "Play" words, and
 the same look across all three.
 
-Four sets, one per world. Each set has the same three files, named `<set>-landscape-1920x1080.png`,
-`<set>-portrait-800x1200.png` and `<set>-square-800x800.png` in `covers/`:
+Each set has the same three files, named `<set>-landscape-1920x1080.png`, `<set>-portrait-800x1200.png`
+and `<set>-square-800x800.png` in `covers/`:
 
 | Set | Look |
 |---|---|
-| **cosmos** (recommended) | Purple space, ringed planet; matches the game's UI and the trailer's opening frame |
-| farm | Pink sunset sky, hay bales, red tractors |
-| neon | Synthwave grid, glowing chips |
-| beanstalk | Bright blue sky, clouds, giant beanstalks |
+| **art** (recommended, upload this) | Illustrated key art: Blobby leaping over the purple tower in space, with coins and the 3D logo. The trailers open and close on it. |
+| cosmos | In-engine render of the Cosmos world with the title added |
+| farm | In-engine render: pink sunset sky, hay bales, red tractors |
+| neon | In-engine render: synthwave grid, glowing chips |
+| beanstalk | In-engine render: bright blue sky, clouds, giant beanstalks |
 
-Upload one set only; the three sizes must match each other. If you pick a set other than cosmos,
-re-render the trailer so its opening frame matches (see section 4).
-The `raw-*.png` files are untitled renders used to build the covers; don't upload those.
+The **art** set was prepared from your supplied illustrations with `Tools/prepare_covers.py`:
+- resized to the exact sizes (the landscape art is upscaled about 15% from 1672×941, then lightly sharpened)
+- a small image-generator watermark removed from the landscape's top-left corner, since covers may not carry icons or logos
+
+The originals are in `covers/source/`.
+
+Upload one set only; the three sizes must match each other. If you switch sets, change the cover file
+names in `TrailerDirector.Start` and re-render the trailer so its opening frame matches (see section 4).
+The `raw-*.png` files are untitled renders used to build the in-engine sets; don't upload those.
 
 **Regenerating covers** (other worlds, other characters):
 
@@ -184,5 +191,5 @@ Legend: ✅ done and verified here · 🟡 done, needs your check on a real devi
 1. Upload `Builds/WebGL` to the CrazyGames **QA tool** and play through: first-run flow (use a private
    window), menu, character shop, daily reward, Daily Tower, 2 Player, game over → play again.
 2. Check it at the smallest preview size (800×450) and on a phone.
-3. Pick the cover set (Cosmos recommended) and fill in the text from section 2.
+3. Upload the **art** cover set and fill in the text from section 2.
 4. Upload both trailers from `trailer/`.

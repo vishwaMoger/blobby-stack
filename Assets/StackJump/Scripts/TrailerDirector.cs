@@ -51,8 +51,9 @@ namespace StackJump
             data.renderShadows = false;
             uiCam.enabled = false;
 
-            yield return Record(1920, 1080, "landscape", "cosmos-landscape-1920x1080.png");
-            yield return Record(1080, 1620, "portrait", "cosmos-portrait-800x1200.png");
+            // Opening/closing frames use the final cover art (the portrait from its larger original).
+            yield return Record(1920, 1080, "landscape", "art-landscape-1920x1080.png");
+            yield return Record(1080, 1620, "portrait", Path.Combine("source", "art-portrait-original.png"));
             UnityEditor.EditorApplication.Exit(0);
         }
 
