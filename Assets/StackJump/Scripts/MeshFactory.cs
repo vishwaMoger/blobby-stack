@@ -9,15 +9,74 @@ namespace StackJump
         static Mesh sphere, cylinder, quad;
         static readonly Dictionary<string, Mesh> cache = new();
 
-        public static Mesh Sphere => sphere != null ? sphere : sphere = Primitive(PrimitiveType.Sphere);
-        public static Mesh Cylinder => cylinder != null ? cylinder : cylinder = Primitive(PrimitiveType.Cylinder);
+        // Cached or built-in meshes are shared by many renderers and must outlive any one of them.
+        public static bool IsShared(Mesh m) =>
+            m == null || m == sphere || m == cylinder || m == quad || cache.ContainsValue(m);
 
-        static Mesh Primitive(PrimitiveType type)
+        // Same dimensions as Unity's built-in primitives (sphere radius 0.5; cylinder radius 0.5,
+        // height 2), but generated here: CreatePrimitive adds colliders, and the physics classes
+        // are stripped from the WebGL build.
+        public static Mesh Sphere => sphere != null ? sphere : sphere = UvSphere(28, 18);
+        public static Mesh Cylinder => cylinder != null ? cylinder : cylinder = CylinderMesh(24);
+
+        static Mesh UvSphere(int lon, int lat)
         {
-            var go = GameObject.CreatePrimitive(type);
-            var mesh = go.GetComponent<MeshFilter>().sharedMesh;
-            Object.Destroy(go);
-            return mesh;
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var tris = new List<int>();
+            for (int j = 0; j <= lat; j++)
+            {
+                float v = j / (float)lat * Mathf.PI;
+                for (int i = 0; i <= lon; i++)
+                {
+                    float u = i / (float)lon * Mathf.PI * 2f;
+                    var n = new Vector3(Mathf.Sin(v) * Mathf.Cos(u), Mathf.Cos(v), Mathf.Sin(v) * Mathf.Sin(u));
+                    verts.Add(n * 0.5f);
+                    normals.Add(n);
+                }
+            }
+            for (int j = 0; j < lat; j++)
+            for (int i = 0; i < lon; i++)
+            {
+                int a = j * (lon + 1) + i, b = a + 1, c = a + lon + 1, d = c + 1;
+                tris.AddRange(new[] { a, b, c, b, d, c });
+            }
+            return Build("Sphere", verts, normals, tris);
+        }
+
+        static Mesh CylinderMesh(int sides)
+        {
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var tris = new List<int>();
+            for (int i = 0; i <= sides; i++)
+            {
+                float a = i / (float)sides * Mathf.PI * 2f;
+                var n = new Vector3(Mathf.Cos(a), 0, Mathf.Sin(a));
+                verts.Add(n * 0.5f + Vector3.down);
+                verts.Add(n * 0.5f + Vector3.up);
+                normals.Add(n);
+                normals.Add(n);
+                if (i < sides)
+                {
+                    int b = i * 2;
+                    tris.AddRange(new[] { b, b + 1, b + 2, b + 1, b + 3, b + 2 });
+                }
+            }
+            for (int cap = -1; cap <= 1; cap += 2)
+            {
+                int center = verts.Count;
+                verts.Add(new Vector3(0, cap, 0));
+                normals.Add(new Vector3(0, cap, 0));
+                for (int i = 0; i <= sides; i++)
+                {
+                    float a = i / (float)sides * Mathf.PI * 2f;
+                    verts.Add(new Vector3(Mathf.Cos(a) * 0.5f, cap, Mathf.Sin(a) * 0.5f));
+                    normals.Add(new Vector3(0, cap, 0));
+                    if (i < sides) tris.AddRange(new[] { center, center + 1 + i, center + 2 + i });
+                }
+            }
+            return Build("Cylinder", verts, normals, tris);
         }
 
         // Unit quad in the XY plane, uv 0..1, centered.
@@ -253,6 +312,134 @@ namespace StackJump
             m.SetTriangles(tris, 0);
             m.RecalculateBounds();
             return m;
+        }
+
+        // Copy of a mesh with its vertices pushed in/out by noise (rocks, mounds).
+        public static Mesh Lumpy(Mesh src, int seed, float amount, float frequency = 2.2f)
+        {
+            string key = $"lumpy{src.GetInstanceID()},{seed},{amount:F3},{frequency:F2}";
+            if (cache.TryGetValue(key, out var cached)) return cached;
+            var verts = src.vertices;
+            var normals = src.normals;
+            float o = seed * 13.17f;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                var v = verts[i];
+                float n = Mathf.PerlinNoise(v.x * frequency + o, v.z * frequency + v.y * 1.7f + o * 0.5f) - 0.5f;
+                verts[i] = v + normals[i] * n * amount;
+            }
+            var m = new Mesh { name = "Lumpy" };
+            m.vertices = verts;
+            m.normals = normals;
+            m.triangles = src.triangles;
+            m.RecalculateBounds();
+            return cache[key] = m;
+        }
+
+        // Pointed crystal: a prism with a pyramid tip, base at y = 0. Flat shaded.
+        public static Mesh Crystal(int sides, float radius, float height, float tip)
+        {
+            string key = $"crystal{sides},{radius:F3},{height:F3},{tip:F3}";
+            if (cache.TryGetValue(key, out var cached)) return cached;
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var tris = new List<int>();
+            var top = new Vector3(0, height + tip, 0);
+            for (int i = 0; i < sides; i++)
+            {
+                float a0 = i / (float)sides * Mathf.PI * 2f, a1 = (i + 1) / (float)sides * Mathf.PI * 2f;
+                var b0 = new Vector3(Mathf.Cos(a0) * radius, 0, Mathf.Sin(a0) * radius);
+                var b1 = new Vector3(Mathf.Cos(a1) * radius, 0, Mathf.Sin(a1) * radius);
+                var t0 = b0 + Vector3.up * height;
+                var t1 = b1 + Vector3.up * height;
+                AddFlatQuad(verts, normals, tris, b0, b1, t1, t0);
+                AddFlatTri(verts, normals, tris, t0, t1, top);
+            }
+            return cache[key] = Build("Crystal", verts, normals, tris);
+        }
+
+        // Prism from a convex XZ outline, base at y = 0, with a small bevel on the top edge. Flat shaded sides.
+        public static Mesh Extrude(Vector2[] outline, float height, float bevel)
+        {
+            string key = "extrude" + string.Join(";", outline) + $"{height:F3},{bevel:F3}";
+            if (cache.TryGetValue(key, out var cached)) return cached;
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var tris = new List<int>();
+            var center = Vector2.zero;
+            foreach (var p in outline) center += p;
+            center /= outline.Length;
+            Vector3 Inset(Vector2 p, float y, float amount)
+            {
+                var d = (p - center).normalized * amount;
+                return new Vector3(p.x - d.x, y, p.y - d.y);
+            }
+            int n = outline.Length;
+            for (int i = 0; i < n; i++)
+            {
+                var p0 = outline[i];
+                var p1 = outline[(i + 1) % n];
+                AddFlatQuad(verts, normals, tris,
+                    new Vector3(p0.x, 0, p0.y), new Vector3(p1.x, 0, p1.y),
+                    new Vector3(p1.x, height - bevel, p1.y), new Vector3(p0.x, height - bevel, p0.y));
+                AddFlatQuad(verts, normals, tris,
+                    new Vector3(p0.x, height - bevel, p0.y), new Vector3(p1.x, height - bevel, p1.y),
+                    Inset(p1, height, bevel), Inset(p0, height, bevel));
+                AddFlatTri(verts, normals, tris, Inset(p0, height, bevel), Inset(p1, height, bevel), new Vector3(center.x, height, center.y));
+                AddFlatTri(verts, normals, tris, new Vector3(p1.x, 0, p1.y), new Vector3(p0.x, 0, p0.y), new Vector3(center.x, 0, center.y));
+            }
+            return cache[key] = Build("Extrude", verts, normals, tris);
+        }
+
+        // Smooth tube along a polyline (vines, tendrils, pipes).
+        public static Mesh Tube(IList<Vector3> path, float radius, int sides = 8, bool taper = true)
+        {
+            var verts = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var tris = new List<int>();
+            var up = Vector3.up;
+            for (int i = 0; i < path.Count; i++)
+            {
+                var fwd = (path[Mathf.Min(i + 1, path.Count - 1)] - path[Mathf.Max(i - 1, 0)]).normalized;
+                if (Mathf.Abs(Vector3.Dot(fwd, up)) > 0.95f) up = Vector3.right;
+                var side = Vector3.Cross(fwd, up).normalized;
+                var nUp = Vector3.Cross(side, fwd).normalized;
+                float r = taper ? radius * Mathf.Lerp(1f, 0.35f, i / (float)(path.Count - 1)) : radius;
+                for (int s = 0; s <= sides; s++)
+                {
+                    float a = s / (float)sides * Mathf.PI * 2f;
+                    var n = side * Mathf.Cos(a) + nUp * Mathf.Sin(a);
+                    verts.Add(path[i] + n * r);
+                    normals.Add(n);
+                }
+                if (i < path.Count - 1)
+                {
+                    int b = i * (sides + 1);
+                    for (int s = 0; s < sides; s++)
+                        tris.AddRange(new[] { b + s, b + s + sides + 1, b + s + 1, b + s + 1, b + s + sides + 1, b + s + sides + 2 });
+                }
+            }
+            return Build("Tube", verts, normals, tris);
+        }
+
+        static void AddFlatQuad(List<Vector3> v, List<Vector3> n, List<int> t, Vector3 a, Vector3 b, Vector3 c, Vector3 d)
+        {
+            AddFlatTri(v, n, t, a, b, c);
+            AddFlatTri(v, n, t, a, c, d);
+        }
+
+        // Flat triangle whose normal points away from the mesh's vertical axis (convex shapes).
+        static void AddFlatTri(List<Vector3> v, List<Vector3> n, List<int> t, Vector3 a, Vector3 b, Vector3 c)
+        {
+            var normal = Vector3.Cross(b - a, c - a).normalized;
+            var mid = (a + b + c) / 3f;
+            var outward = new Vector3(mid.x, 0, mid.z);
+            if (Mathf.Abs(normal.y) > 0.9f) outward = new Vector3(0, normal.y, 0);
+            if (Vector3.Dot(normal, outward) < 0f) normal = -normal;
+            int s = v.Count;
+            v.AddRange(new[] { a, b, c });
+            n.AddRange(new[] { normal, normal, normal });
+            t.AddRange(new[] { s, s + 1, s + 2 });
         }
 
         // Builds a lit mesh and makes every triangle face along its vertex normals.

@@ -1,20 +1,49 @@
-using UnityEngine;
+using System.Collections.Generic;
 
 namespace StackJump
 {
-    // Local persistence. Swap for the CrazyGames SDK data module when it's integrated.
+    // Persistent progress, stored through the platform (CrazyGames cloud save or PlayerPrefs).
+    // Values are cached after the first read so gameplay never round-trips to JavaScript.
     public static class Save
     {
+        static readonly Dictionary<string, int> cache = new();
+
+        static int Get(string key)
+        {
+            if (!cache.TryGetValue(key, out int v)) cache[key] = v = Platform.GetInt(key);
+            return v;
+        }
+
+        static void Set(string key, int value)
+        {
+            if (cache.TryGetValue(key, out int old) && old == value) return;
+            cache[key] = value;
+            Platform.SetInt(key, value);
+        }
+
         public static int Best
         {
-            get => PlayerPrefs.GetInt("best", 0);
-            set { PlayerPrefs.SetInt("best", value); PlayerPrefs.Save(); }
+            get => Get("best");
+            set => Set("best", value);
         }
 
         public static int Character
         {
-            get => PlayerPrefs.GetInt("char", 0);
-            set { PlayerPrefs.SetInt("char", value); PlayerPrefs.Save(); }
+            get => Get("char");
+            set => Set("char", value);
+        }
+
+        // Highest world index reached; worlds up to this one can be picked as a starting point.
+        public static int MaxWorld
+        {
+            get => Get("maxWorld");
+            set => Set("maxWorld", value);
+        }
+
+        public static int World
+        {
+            get => Get("world");
+            set => Set("world", value);
         }
     }
 }

@@ -3,6 +3,8 @@ using UnityEngine.Rendering;
 
 namespace StackJump
 {
+    public enum Pattern { None = 0, Bricks = 1, Straw = 2, Planks = 3, Circuit = 4, Rock = 5, Tiles = 6, Stalk = 7, Grass = 8 }
+
     // Materials live in Resources so their shaders are always included in the WebGL build.
     public static class Mats
     {
@@ -13,6 +15,10 @@ namespace StackJump
         static readonly int FlatId = Shader.PropertyToID("_Flat");
         static readonly int TopBoostId = Shader.PropertyToID("_TopBoost");
         static readonly int FogAmountId = Shader.PropertyToID("_FogAmount");
+        static readonly int PatternId = Shader.PropertyToID("_Pattern");
+        static readonly int PatternColorId = Shader.PropertyToID("_PatternColor");
+        static readonly int PatternScaleId = Shader.PropertyToID("_PatternScale");
+        static readonly int PatternGlowId = Shader.PropertyToID("_PatternGlow");
 
         static Material toon, unlit, sky, unlitOpaque, unlitAlpha, unlitAdd;
         static MaterialPropertyBlock block;
@@ -25,6 +31,10 @@ namespace StackJump
         public static Material UnlitOpaque => unlitOpaque != null ? unlitOpaque : unlitOpaque = MakeUnlit(BlendMode.One, BlendMode.Zero, true, 2000, 0f);
         public static Material UnlitAlpha => unlitAlpha != null ? unlitAlpha : unlitAlpha = MakeUnlit(BlendMode.SrcAlpha, BlendMode.OneMinusSrcAlpha, false, 3000, 0f);
         public static Material UnlitAdditive => unlitAdd != null ? unlitAdd : unlitAdd = MakeUnlit(BlendMode.SrcAlpha, BlendMode.One, false, 3000, 0f);
+
+        // Materials many renderers use; never destroyed with a single renderer.
+        public static bool IsShared(Material m) =>
+            m == null || m == toon || m == unlit || m == sky || m == unlitOpaque || m == unlitAlpha || m == unlitAdd;
 
         public static Material MakeUnlit(BlendMode src, BlendMode dst, bool zWrite, int queue, float fog, Texture texture = null, Color? color = null)
         {
@@ -51,6 +61,19 @@ namespace StackJump
             block.SetFloat(FlatId, flat);
             block.SetFloat(TopBoostId, topBoost);
             block.SetFloat(FogAmountId, fog);
+            block.SetFloat(PatternId, 0f);
+            r.SetPropertyBlock(block);
+        }
+
+        // Procedural surface pattern on top of Set(); see Toon.shader for the pattern ids.
+        public static void SetPattern(Renderer r, Pattern pattern, Color secondary, float scale = 1f, float glow = 0f)
+        {
+            block ??= new MaterialPropertyBlock();
+            r.GetPropertyBlock(block);
+            block.SetFloat(PatternId, (float)pattern);
+            block.SetColor(PatternColorId, secondary);
+            block.SetFloat(PatternScaleId, scale);
+            block.SetFloat(PatternGlowId, glow);
             r.SetPropertyBlock(block);
         }
 
@@ -67,10 +90,12 @@ namespace StackJump
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             var r = go.AddComponent<MeshRenderer>();
             r.sharedMaterial = material;
-            r.shadowCastingMode = ShadowCastingMode.Off;
-            r.receiveShadows = false;
+            bool lit = material == Toon;
+            r.shadowCastingMode = lit ? ShadowCastingMode.On : ShadowCastingMode.Off;
+            r.receiveShadows = lit;
             r.lightProbeUsage = LightProbeUsage.Off;
             r.reflectionProbeUsage = ReflectionProbeUsage.Off;
+            go.AddComponent<OwnedAssets>().Init(mesh, material);
             return r;
         }
 

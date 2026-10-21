@@ -116,13 +116,21 @@ namespace StackJump.EditorTools
                 if (asset == null) continue;
                 asset.supportsHDR = true;
                 asset.msaaSampleCount = 4;
-                asset.shadowDistance = 0f;
+                // One soft cascade covering the tower and nearby props.
+                asset.shadowDistance = 28f;
+                asset.shadowCascadeCount = 1;
+                asset.mainLightShadowmapResolution = 2048;
                 var so = new SerializedObject(asset);
-                foreach (var prop in new[] { "m_MainLightShadowsSupported", "m_AdditionalLightShadowsSupported", "m_SoftShadowsSupported", "m_RequireDepthTexture", "m_RequireOpaqueTexture" })
+                void SetBool(string name, bool value)
                 {
-                    var p = so.FindProperty(prop);
-                    if (p != null) p.boolValue = false;
+                    var p = so.FindProperty(name);
+                    if (p != null) p.boolValue = value;
                 }
+                SetBool("m_MainLightShadowsSupported", true);
+                SetBool("m_SoftShadowsSupported", true);
+                SetBool("m_AdditionalLightShadowsSupported", false);
+                SetBool("m_RequireDepthTexture", false);
+                SetBool("m_RequireOpaqueTexture", false);
                 so.ApplyModifiedPropertiesWithoutUndo();
                 EditorUtility.SetDirty(asset);
             }
@@ -145,7 +153,7 @@ namespace StackJump.EditorTools
             camGo.AddComponent<AudioListener>();
             var camData = cam.GetUniversalAdditionalCameraData();
             camData.renderPostProcessing = true;
-            camData.renderShadows = false;
+            camData.renderShadows = true;
             camGo.AddComponent<CameraRig>();
             camGo.transform.position = new Vector3(0, 2.6f, -9.5f);
 
@@ -153,8 +161,11 @@ namespace StackJump.EditorTools
             var light = lightGo.AddComponent<Light>();
             light.type = LightType.Directional;
             light.intensity = 1.05f;
-            light.shadows = LightShadows.None;
-            lightGo.transform.rotation = Quaternion.Euler(42f, -38f, 0f);
+            light.shadows = LightShadows.Soft;
+            light.shadowStrength = 1f;
+            light.shadowBias = 0.05f;
+            light.shadowNormalBias = 0.4f;
+            lightGo.transform.rotation = Quaternion.Euler(48f, -32f, 0f);
 
             var volumeGo = new GameObject("Global Volume");
             var volume = volumeGo.AddComponent<Volume>();
@@ -198,7 +209,9 @@ namespace StackJump.EditorTools
 
         public static void BuildDev() => Build("Builds/WebGL-dev", WebGLCompressionFormat.Disabled, WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly);
 
-        public static void BuildRelease() => Build("Builds/WebGL", WebGLCompressionFormat.Brotli, WebGLExceptionSupport.None);
+        // Explicitly thrown exceptions stay catchable in release, so the try/catch guards around
+        // the SDK work instead of an exception aborting the whole WebGL player.
+        public static void BuildRelease() => Build("Builds/WebGL", WebGLCompressionFormat.Brotli, WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly);
 
         static void Build(string output, WebGLCompressionFormat compression, WebGLExceptionSupport exceptions)
         {

@@ -27,12 +27,17 @@ Material:
     m_Floats:
     - _Emission: 0
     - _Flat: 0
+    - _FogAmount: 1
     - _Gloss: 0.2
     - _Grad: 0
     - _GradHeight: 0.6
+    - _Pattern: 0
+    - _PatternGlow: 0
+    - _PatternScale: 1
     - _Rim: 0.35
     - _TopBoost: 0.12
     m_Colors:
     - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
+    - _PatternColor: {r: 0, g: 0, b: 0, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

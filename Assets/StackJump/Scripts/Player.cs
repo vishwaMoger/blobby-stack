@@ -22,7 +22,7 @@ namespace StackJump
         float vy, jumpTime;
         float squash, squashVel;
         float blinkTimer = 2f, blink = 1f;
-        float look, lookTarget;
+        float look, lookTarget, arms;
         Vector3 deathVel;
         Vector3 deathSpin;
 
@@ -131,6 +131,12 @@ namespace StackJump
 
             look = Mathf.Lerp(look, lookTarget, 1f - Mathf.Exp(-dt * 10f));
             Rig.Look(look);
+
+            float armsTarget = Dead ? 0.6f + Mathf.Sin(Time.time * 30f) * 0.4f
+                             : Grounded ? 0.08f + Mathf.Sin(Time.time * 3.2f) * 0.05f
+                             : Mathf.Clamp01(0.55f + vy * 0.06f);
+            arms = Mathf.Lerp(arms, armsTarget, 1f - Mathf.Exp(-dt * 14f));
+            Rig.ArmsUp(arms);
         }
     }
 }

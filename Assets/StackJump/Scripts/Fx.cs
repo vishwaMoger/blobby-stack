@@ -82,6 +82,38 @@ namespace StackJump
             }
         }
 
+        // Expanding glowing square on a perfect landing.
+        public void Ring(Vector3 pos)
+        {
+            var go = new GameObject("Ring");
+            go.transform.position = pos;
+            var mat = Mats.MakeUnlit(UnityEngine.Rendering.BlendMode.SrcAlpha, UnityEngine.Rendering.BlendMode.One, false, 3100, 0f, null, Color.white * 1.5f);
+            Mats.AddRenderer(go, MeshFactory.Frame(Tower.BlockSize, 0.08f), mat);
+            rings.Add((go.transform, mat, 0f));
+        }
+
+        readonly System.Collections.Generic.List<(Transform t, Material m, float age)> rings = new();
+
+        void Update()
+        {
+            for (int i = rings.Count - 1; i >= 0; i--)
+            {
+                var (t, m, age) = rings[i];
+                age += Time.deltaTime;
+                float k = age / 0.45f;
+                t.localScale = Vector3.one * (1f + k * 0.8f);
+                var c = Color.white * 1.5f;
+                c.a = 1f - k;
+                m.SetColor("_BaseColor", c);
+                if (k >= 1f)
+                {
+                    Destroy(t.gameObject); // OwnedAssets frees its mesh and material
+                    rings.RemoveAt(i);
+                }
+                else rings[i] = (t, m, age);
+            }
+        }
+
         public void Confetti(Vector3 pos, Color[] palette)
         {
             var p = new ParticleSystem.EmitParams();

@@ -2,12 +2,13 @@ using UnityEngine;
 
 namespace StackJump
 {
-    // Sky, fog, lighting globals, the floating start island and per-world backdrops,
+    // Sky, fog, lighting globals, the themed start ground and per-world backdrops,
     // with smooth crossfades when the climb enters a new world.
     public class Scenery : MonoBehaviour
     {
         static readonly int ShadeId = Shader.PropertyToID("_SJ_ShadeColor");
         static readonly int RimId = Shader.PropertyToID("_SJ_RimColor");
+        static readonly int SkyId = Shader.PropertyToID("_SJ_SkyColor");
 
         Camera cam;
         Light sun;
@@ -17,9 +18,17 @@ namespace StackJump
         float blend = 1f;
         Transform backdrop, leaving;
         float enterT = 1f, leaveT = 1f;
-        Renderer islandTop, islandRock, platform;
+        Transform ground;
 
         public WorldTheme Current { get; private set; }
+
+        // The themed ground the tower starts on; rebuilt when a run starts in another world.
+        public void SetGround(WorldTheme theme)
+        {
+            if (ground != null && ground.name == "Ground " + theme.Name) return;
+            if (ground != null) Destroy(ground.gameObject);
+            ground = Ground.Build(theme);
+        }
 
         public void Init(Camera camera, Light light)
         {
@@ -34,24 +43,10 @@ namespace StackJump
             skyQuad = sky.transform;
             skyQuad.SetParent(cam.transform, false);
 
-            var island = new GameObject("Island").transform;
-            islandTop = Mats.AddRenderer(new GameObject("Top"), MeshFactory.Cylinder, Mats.Toon);
-            islandTop.transform.SetParent(island, false);
-            islandTop.transform.localPosition = new Vector3(0, -0.35f, 0);
-            islandTop.transform.localScale = new Vector3(5.2f, 0.25f, 5.2f);
-            islandRock = Mats.AddRenderer(new GameObject("Rock"), MeshFactory.Cone(1f, 1f, 10), Mats.Toon);
-            islandRock.transform.SetParent(island, false);
-            islandRock.transform.localPosition = new Vector3(0, -0.58f, 0);
-            islandRock.transform.localRotation = Quaternion.Euler(180f, 0, 0);
-            islandRock.transform.localScale = new Vector3(2.7f, 3.6f, 2.7f);
-            platform = Mats.AddRenderer(new GameObject("Platform"), MeshFactory.RoundedBox(new Vector3(2.5f, 0.5f, 2.5f), 0.14f), Mats.Toon);
-            platform.transform.SetParent(island, false);
-            platform.transform.localPosition = new Vector3(0, -0.25f, 0);
-
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.Linear;
-            RenderSettings.fogStartDistance = 22f;
-            RenderSettings.fogEndDistance = 130f;
+            RenderSettings.fogStartDistance = 18f;
+            RenderSettings.fogEndDistance = 150f;
         }
 
         public void SetWorld(WorldTheme theme, bool instant)
@@ -138,15 +133,13 @@ namespace StackJump
             skyMat.SetFloat("_Clouds", th.Clouds);
             skyMat.SetColor("_CloudColor", th.CloudColor);
 
-            RenderSettings.fogColor = th.Fog;
+            // Lean the fog toward the sky's bottom color so the far ground melts into the horizon.
+            RenderSettings.fogColor = Color.Lerp(th.Fog, th.SkyBottom, 0.6f);
             Shader.SetGlobalColor(ShadeId, th.Shade);
             Shader.SetGlobalColor(RimId, th.Rim);
+            Shader.SetGlobalColor(SkyId, th.SkyAmbient);
             if (sun != null) sun.color = th.Light;
             cam.backgroundColor = th.SkyBottom;
-
-            Mats.Set(islandTop, th.Ground, 0.1f, 0f, 0f, 0f, 0.2f);
-            Mats.Set(islandRock, Color.Lerp(th.Ground, th.Shade, 0.45f), 0f, 0f, 0f, 0f, 0f);
-            Mats.Set(platform, Color.Lerp(th.Ground, Color.white, 0.12f), 0.1f, 0f, 0.1f, 0f, 0.15f);
         }
     }
 }

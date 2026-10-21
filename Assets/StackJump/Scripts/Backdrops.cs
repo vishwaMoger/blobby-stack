@@ -16,7 +16,7 @@ namespace StackJump
                 case BackdropKind.Clouds: CloudSea(root, th, rng); break;
                 case BackdropKind.Castle: Castle(root, th, rng); break;
                 case BackdropKind.Mountains: Mountains(root, th); break;
-                case BackdropKind.Hills: Hills(root, th); break;
+                case BackdropKind.Kitchen: KitchenWall(root, th, rng); break;
                 case BackdropKind.Grid: NeonGrid(root, th, rng); break;
             }
             return root;
@@ -90,6 +90,27 @@ namespace StackJump
                 }
                 cluster.gameObject.AddComponent<Drifter>().Setup(0f, R(rng, 0.15f, 0.4f), R(rng, 0f, 6f), 1.5f);
             }
+            // Giant beanstalks climbing through the sky.
+            var stalks = new[] { new Vector3(-15f, 0, 40f), new Vector3(19f, 0, 50f), new Vector3(-34f, 0, 66f) };
+            for (int s = 0; s < stalks.Length; s++)
+            {
+                var path = new List<Vector3>();
+                for (int i = 0; i <= 40; i++)
+                {
+                    float y = Mathf.Lerp(-40f, 45f, i / 40f);
+                    path.Add(stalks[s] + new Vector3(Mathf.Sin(y * 0.12f + s) * 2.2f, y, Mathf.Cos(y * 0.09f + s) * 1.2f));
+                }
+                var green = Color.Lerp(th.Palette[s % th.Palette.Length], th.Fog, 0.15f + s * 0.18f);
+                var stalk = Prop(root, MeshFactory.Tube(path, 1.3f - s * 0.25f, 10, false), green, Vector3.zero, Vector3.one, 0f, 0f, 0.15f);
+                Mats.SetPattern(stalk, Pattern.Stalk, green, 1f);
+                for (int i = 3; i < path.Count - 3; i += 4)
+                {
+                    float side = i % 8 == 3 ? 1f : -1f;
+                    Prop(root, MeshFactory.Sphere, Color.Lerp(green, th.Trim, 0.3f), path[i] + new Vector3(side * 2.4f, 0.5f, 0), new Vector3(3.2f, 0.4f, 1.8f), 0f, 0f, 0.3f)
+                        .transform.localRotation = Quaternion.Euler(0, 0, side * 18f);
+                }
+            }
+
             // A sea of clouds far below.
             for (int i = 0; i < 26; i++)
             {
@@ -130,11 +151,35 @@ namespace StackJump
             Ridge(root, th, 44f, -4f, 6f, 0.03f, th.Seed + 7, th.Near, false);
         }
 
-        static void Hills(Transform root, WorldTheme th)
+        static void KitchenWall(Transform root, WorldTheme th, System.Random rng)
         {
-            Ridge(root, th, 80f, 1f, 9f, 0.025f, th.Seed, Color.Lerp(th.Far, th.Fog, 0.3f), false);
-            Ridge(root, th, 58f, -2f, 7f, 0.04f, th.Seed + 3, Color.Lerp(th.Far, th.Near, 0.5f), false);
-            Ridge(root, th, 40f, -4f, 4f, 0.05f, th.Seed + 7, th.Near, false);
+            var wall = Prop(root, MeshFactory.RoundedBox(new Vector3(120f, 80f, 1f), 0.1f), th.Far, new Vector3(0, 6f, 36f), Vector3.one, 0f, 0f, 0.15f);
+            Mats.SetPattern(wall, Pattern.Tiles, th.Near, 0.4f);
+            var wood = Mats.Hex("6A3A22");
+            var jar = new[] { Mats.Hex("F2B33A"), Mats.Hex("E8473A"), Mats.Hex("7FC4D9"), Mats.Hex("FFFFFF") };
+            for (int shelf = 0; shelf < 2; shelf++)
+            {
+                float y = 9f + shelf * 6.5f;
+                Prop(root, MeshFactory.RoundedBox(new Vector3(40f, 0.4f, 2f), 0.05f), wood, new Vector3(0, y, 34.5f), Vector3.one, 0f, 0f, 0.1f);
+                for (float x = -18f; x < 18f; x += R(rng, 1.6f, 3.2f))
+                {
+                    if (Mathf.Abs(x) < 3.5f) continue;
+                    float h = R(rng, 1.2f, 2.6f), w = R(rng, 0.8f, 1.4f);
+                    var c = jar[rng.Next(jar.Length)];
+                    Prop(root, MeshFactory.Cylinder, c, new Vector3(x, y + 0.2f + h * 0.5f, 34.3f), new Vector3(w, h * 0.5f, w), 0f, 0.05f, 0.5f);
+                    Prop(root, MeshFactory.Cylinder, wood, new Vector3(x, y + 0.25f + h, 34.3f), new Vector3(w * 0.7f, 0.15f, w * 0.7f), 0f, 0f, 0.2f);
+                }
+            }
+            // Hanging pans on a rail.
+            Prop(root, MeshFactory.Cylinder, Mats.Hex("B9C0CC"), new Vector3(0, 4.5f, 33f), new Vector3(0.15f, 16f, 0.15f), 0f, 0f, 0.8f).transform.localRotation = Quaternion.Euler(0, 0, 90);
+            for (int i = -3; i <= 3; i++)
+            {
+                if (i == 0) continue;
+                float x = i * 4.2f + R(rng, -0.4f, 0.4f);
+                float s = R(rng, 1.4f, 2.2f);
+                Prop(root, MeshFactory.Cylinder, Mats.Hex("3A3438"), new Vector3(x, 4.5f - s * 0.9f, 33f), new Vector3(s, 0.12f, s), 0f, 0f, 0.7f).transform.localRotation = Quaternion.Euler(90, 0, 0);
+                Prop(root, MeshFactory.RoundedBox(new Vector3(0.18f, 1.2f, 0.12f), 0.05f), Mats.Hex("3A3438"), new Vector3(x, 4.3f, 33f), Vector3.one, 0f, 0f, 0.5f);
+            }
         }
 
         static void NeonGrid(Transform root, WorldTheme th, System.Random rng)

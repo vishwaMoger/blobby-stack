@@ -6,7 +6,7 @@ namespace StackJump
     [RequireComponent(typeof(Camera))]
     public class CameraRig : MonoBehaviour
     {
-        const float Distance = 9.5f;
+        const float Distance = 8.2f;
 
         public float TargetY;
         Camera cam;
@@ -30,10 +30,10 @@ namespace StackJump
             float dt = Time.deltaTime;
             y = Mathf.SmoothDamp(y, TargetY, ref yVel, 0.35f);
             float aspect = cam.aspect;
-            cam.fieldOfView = aspect < 1f ? Mathf.Lerp(56f, 44f, Mathf.InverseLerp(0.45f, 1f, aspect)) : 42f;
+            cam.fieldOfView = aspect < 1f ? Mathf.Lerp(58f, 44f, Mathf.InverseLerp(0.45f, 1f, aspect)) : 38f;
 
-            var pos = new Vector3(0, y + 2.0f, -Distance);
-            var look = new Vector3(0, y + 0.55f, 0);
+            var pos = new Vector3(0, y + 2.3f, -Distance);
+            var look = new Vector3(0, y + 0.95f, 0);
             if (shake > 0f)
             {
                 float t = Time.time * 40f;
