@@ -87,16 +87,15 @@ Two changes:
 
 **GameDistribution:** ready-made in `covers/gamedistribution/` (made by `Tools/gd_covers.py` from the art set):
 
-| File | Size |
+| File | Assets tab slot |
 |---|---|
-| `blobby-stack-1280x720.png` | 1280 × 720 |
-| `blobby-stack-1280x550.png` | 1280 × 550 |
-| `blobby-stack-512x512.png` | 512 × 512 |
-| `blobby-stack-512x384.png` | 512 × 384 |
-| `blobby-stack-512x340.png` | 512 × 340 |
+| `blobby-stack-512x384.jpg` | Required (main thumbnail) |
+| `blobby-stack-512x512.jpg` | Required (main thumbnail) |
+| `blobby-stack-200x120.jpg` | Required (main thumbnail) |
+| `blobby-stack-1280x720.jpg` | Helpful for marketing |
+| `blobby-stack-1280x550.jpg` | Helpful for marketing |
 
-These sizes come from a community template of GameDistribution's asset form, not from GameDistribution's own
-docs; if the upload form asks for a different size, crop it from `covers/art-landscape-1920x1080.png`.
+The Assets tab only accepts .jpg/.jpeg at exactly these sizes.
 
 **Poki and anything else:** use the **art** cover set from `covers/` (`art-landscape-1920x1080.png`, `art-portrait-800x1200.png`,
 `art-square-800x800.png`) and resize to whatever sizes each dashboard asks for. The originals are in
