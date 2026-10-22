@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -13,6 +14,8 @@ namespace StackJump.EditorTools
     //   -executeMethod StackJump.EditorTools.StackJumpSetup.Setup
     //   -executeMethod StackJump.EditorTools.StackJumpSetup.BuildDev
     //   -executeMethod StackJump.EditorTools.StackJumpSetup.BuildRelease
+    //   -executeMethod StackJump.EditorTools.StackJumpSetup.BuildPoki
+    //   -executeMethod StackJump.EditorTools.StackJumpSetup.BuildGameDistribution
     public static class StackJumpSetup
     {
         const string Root = "Assets/StackJump";
@@ -203,6 +206,34 @@ namespace StackJump.EditorTools
             // Every second before gameplay costs conversion; the page shows its own loader instead.
             PlayerSettings.SplashScreen.show = false;
             PlayerSettings.SplashScreen.showUnityLogo = false;
+            PlayerSettings.SplashScreen.backgroundColor = new Color32(0x1E, 0x0D, 0x46, 0xFF);
+            ConfigureSizeOptimizations();
+        }
+
+        // Smaller downloads load faster (conversion) and Poki targets 5 MB initial / 8 MB total.
+        static void ConfigureSizeOptimizations()
+        {
+            PlayerSettings.SetIl2CppCodeGeneration(NamedBuildTarget.WebGL, UnityEditor.Build.Il2CppCodeGeneration.OptimizeSize);
+            PlayerSettings.SetIl2CppCompilerConfiguration(NamedBuildTarget.WebGL, Il2CppCompilerConfiguration.Master);
+
+            // Unity 6 WebGL "Code Optimization: Disk Size with LTO", set via reflection so this script
+            // still compiles if the WebGL extension's API moves.
+            var settings = System.Type.GetType("UnityEditor.WebGL.UserBuildSettings, UnityEditor.WebGL.Extensions");
+            var prop = settings?.GetProperty("codeOptimization", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            if (prop != null && prop.PropertyType.IsEnum && System.Enum.IsDefined(prop.PropertyType, "DiskSizeLTO"))
+                prop.SetValue(null, System.Enum.Parse(prop.PropertyType, "DiskSizeLTO"));
+            else
+                Debug.LogWarning("[StackJumpSetup] WebGL code optimization setting not found; skipping LTO.");
+
+            // Drop shader variants the game never uses (debug views, unused post-processing).
+            if (GraphicsSettings.TryGetRenderPipelineSettings<ShaderStrippingSetting>(out var strip))
+                strip.stripRuntimeDebugShaders = true;
+            if (GraphicsSettings.TryGetRenderPipelineSettings<URPShaderStrippingSetting>(out var urpStrip))
+            {
+                urpStrip.stripUnusedPostProcessingVariants = true;
+                urpStrip.stripUnusedVariants = true;
+                urpStrip.stripScreenCoordOverrideVariants = true;
+            }
         }
 
         // ---------- Store covers ----------
@@ -230,12 +261,106 @@ namespace StackJump.EditorTools
         // Full Launch build: midgame and rewarded ads through the SDK.
         public static void BuildReleaseFull() => Build("Builds/WebGL-full", WebGLCompressionFormat.Brotli, WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly, true);
 
-        static void Build(string output, WebGLCompressionFormat compression, WebGLExceptionSupport exceptions, bool ads)
+        // Poki build: Poki SDK + Poki's WebGL template.
+        public static void BuildPoki() => BuildForPortal(Portal.Poki, "Builds/Poki");
+
+        // GameDistribution build: GD SDK loaded by the gamedistribution template. The game ID from the
+        // GameDistribution control panel comes from SJ_GD_GAME_ID or Submission/gamedistribution/game-id.txt.
+        public static void BuildGameDistribution() => BuildForPortal(Portal.GameDistribution, "Builds/GameDistribution");
+
+        enum Portal { CrazyGames, Poki, GameDistribution }
+
+        // Other portals: the CrazyGames SDK (whose site-lock crashes the game outside CrazyGames) is
+        // compiled out, its jslib and Resources left out of the build.
+        // Brotli with decompression fallback works whether or not the host sends encoding headers.
+        static void BuildForPortal(Portal portal, string output)
+        {
+            const string crazyResources = "Assets/CrazySDK/Resources";
+            const string parkedResources = "Assets/CrazySDK/ResourcesExcluded";
+            bool parked = AssetDatabase.IsValidFolder(crazyResources)
+                && string.IsNullOrEmpty(AssetDatabase.MoveAsset(crazyResources, parkedResources));
+            try
+            {
+                Build(output, WebGLCompressionFormat.Brotli, WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly, false, portal, exit: false);
+                if (lastBuildSucceeded && portal == Portal.GameDistribution) InjectGameDistributionId(output);
+            }
+            finally
+            {
+                // Leave the project in its default (CrazyGames) configuration.
+                SetPortalPlugins(Portal.CrazyGames);
+                if (parked) AssetDatabase.MoveAsset(parkedResources, crazyResources);
+                SetDefines(false, Portal.CrazyGames);
+                PlayerSettings.WebGL.template = "PROJECT:FullWindow";
+                PlayerSettings.WebGL.decompressionFallback = false;
+                AssetDatabase.SaveAssets();
+            }
+            EditorApplication.Exit(lastBuildSucceeded ? 0 : 1);
+        }
+
+        const string GameIdPlaceholder = "__GD_GAME_ID__";
+
+        static void InjectGameDistributionId(string output)
+        {
+            var id = System.Environment.GetEnvironmentVariable("SJ_GD_GAME_ID");
+            const string idFile = "Submission/gamedistribution/game-id.txt";
+            if (string.IsNullOrWhiteSpace(id) && File.Exists(idFile)) id = File.ReadAllText(idFile);
+            id = id?.Trim();
+            if (string.IsNullOrEmpty(id))
+            {
+                Debug.LogWarning($"[StackJumpSetup] No GameDistribution game ID; replace {GameIdPlaceholder} in {output}/index.html before uploading.");
+                return;
+            }
+            var index = Path.Combine(output, "index.html");
+            File.WriteAllText(index, File.ReadAllText(index).Replace(GameIdPlaceholder, id));
+            Debug.Log("[StackJumpSetup] GameDistribution game ID set.");
+        }
+
+        const string CrazyJslib = "Assets/Plugins/crazySDK.jslib";
+        const string PokiJslib = "Assets/PokiSDK/Plugins/PokiSDKBridge.jslib";
+        const string GdJslib = Root + "/Plugins/GameDistribution.jslib";
+        static bool lastBuildSucceeded;
+
+        // Each build ships only its own portal's JavaScript bridge.
+        static void SetPortalPlugins(Portal portal)
+        {
+            SetPlugin(CrazyJslib, portal == Portal.CrazyGames);
+            SetPlugin(PokiJslib, portal == Portal.Poki);
+            SetPlugin(GdJslib, portal == Portal.GameDistribution);
+        }
+
+        static void SetPlugin(string path, bool enabled)
+        {
+            if (AssetImporter.GetAtPath(path) is not PluginImporter importer) return;
+            importer.SetCompatibleWithAnyPlatform(false);
+            importer.SetCompatibleWithEditor(false);
+            importer.SetCompatibleWithPlatform(BuildTarget.WebGL, enabled);
+            importer.SaveAndReimport();
+        }
+
+        // Sets our build symbols while keeping any others (e.g. ones the CrazyGames tools add).
+        static void SetDefines(bool ads, Portal portal)
+        {
+            var ours = new[] { "SJ_ADS", "SJ_POKI", "SJ_GD" };
+            var current = PlayerSettings.GetScriptingDefineSymbols(NamedBuildTarget.WebGL)
+                .Split(';').Where(d => d.Length > 0 && !ours.Contains(d)).ToList();
+            if (ads) current.Add("SJ_ADS");
+            if (portal == Portal.Poki) current.Add("SJ_POKI");
+            if (portal == Portal.GameDistribution) current.Add("SJ_GD");
+            PlayerSettings.SetScriptingDefineSymbols(NamedBuildTarget.WebGL, string.Join(";", current));
+        }
+
+        static void Build(string output, WebGLCompressionFormat compression, WebGLExceptionSupport exceptions, bool ads, Portal portal = Portal.CrazyGames, bool exit = true)
         {
             ConfigurePlayer();
             PlayerSettings.WebGL.compressionFormat = compression;
             PlayerSettings.WebGL.exceptionSupport = exceptions;
-            PlayerSettings.SetScriptingDefineSymbols(NamedBuildTarget.WebGL, ads ? "SJ_ADS" : "");
+            if (portal != Portal.CrazyGames)
+            {
+                PlayerSettings.WebGL.template = portal == Portal.Poki ? "PROJECT:poki-template" : "PROJECT:gamedistribution";
+                PlayerSettings.WebGL.decompressionFallback = true;
+            }
+            SetPortalPlugins(portal);
+            SetDefines(ads, portal);
             var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
                 scenes = new[] { ScenePath },
@@ -244,8 +369,9 @@ namespace StackJump.EditorTools
                 options = BuildOptions.None,
             });
             var s = report.summary;
+            lastBuildSucceeded = s.result == BuildResult.Succeeded;
             Debug.Log($"[StackJumpSetup] Build {s.result}: {s.totalSize / (1024f * 1024f):F1} MB, {s.totalErrors} errors, output {output}");
-            EditorApplication.Exit(s.result == BuildResult.Succeeded ? 0 : 1);
+            if (exit) EditorApplication.Exit(lastBuildSucceeded ? 0 : 1);
         }
     }
 }

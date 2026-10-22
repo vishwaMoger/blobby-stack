@@ -13,7 +13,9 @@ namespace StackJump
         public const string Title = "BLOBBY <color=#FFD23A>STACK</color>";
 
         public Action OnPlay, OnDaily, OnVersus, OnPrevChar, OnNextChar, OnPrevWorld, OnNextWorld;
-        public Action OnRetry, OnDoubleCoins, OnHome, OnSound, OnGift, OnRematch;
+        public Action OnRetry, OnDoubleCoins, OnHome, OnSound, OnGift, OnRematch, OnPause, OnResume, OnPauseHome;
+        GameButton pauseButton;
+        GameObject pausePanel;
         public Action<bool> OnClaim, OnRevive; // OnRevive(true) = pay with coins
 
         public static readonly Color Gold = new(1f, 0.85f, 0.25f);
@@ -87,6 +89,9 @@ namespace StackJump
             // Between the score block at the top and the character in the middle.
             banner = UIKit.Label(canvasRect, "", 76, new Vector2(0.5f, 0.5f), new Vector2(0, 170));
             soundButton = UIKit.Button(canvasRect, "", Icon.Sound, Purple, new Vector2(1f, 1f), new Vector2(-80, -80), new Vector2(96, 96), () => OnSound?.Invoke(), true);
+            pauseButton = UIKit.Button(canvasRect, "", Icon.Pause, Purple, new Vector2(1f, 1f), new Vector2(-200, -80), new Vector2(96, 96), () => OnPause?.Invoke(), true);
+            BuildPause();
+            pauseButton.gameObject.SetActive(false);
             tutorial = UIKit.Label(canvasRect, "TAP OR PRESS SPACE\nTO JUMP OVER THE BLOCKS!", 60, new Vector2(0.5f, 0f), new Vector2(0, 230), Color.white);
             tutorial.rectTransform.sizeDelta = new Vector2(1400, 200);
             tutorial.gameObject.SetActive(false);
@@ -179,17 +184,47 @@ namespace StackJump
             overCoins = UIKit.Label(card, "+0", 54, new Vector2(0.5f, 0f), new Vector2(-170, 70), Gold, TextAnchor.MiddleLeft);
             overCoins.rectTransform.sizeDelta = new Vector2(400, 80);
             overCoins.rectTransform.pivot = new Vector2(0f, 0.5f);
-            doubleCoins = UIKit.Button(card, "x2", Icon.Video, Orange, new Vector2(0.5f, 0f), new Vector2(200, 72), new Vector2(200, 90), () => OnDoubleCoins?.Invoke());
             overNew = UIKit.Label(card, "NEW BEST!", 66, new Vector2(1f, 1f), new Vector2(-40, 10), Gold);
             overNew.rectTransform.localRotation = Quaternion.Euler(0, 0, -12f);
             overUnlock = UIKit.Label(over.transform, "", 44, new Vector2(0.5f, 0.5f), new Vector2(0, -150), Gold);
 
-            // Revive offers use the same size, font and color as PLAY AGAIN (CrazyGames ad rules:
-            // the skip option must match the reward button).
-            reviveAd = UIKit.Button(over.transform, "REVIVE", Icon.Video, Green, new Vector2(0.5f, 0.5f), new Vector2(0, -260), new Vector2(460, 125), () => OnRevive?.Invoke(false));
-            reviveCoins = UIKit.Button(over.transform, "REVIVE 100", Icon.Coin, Green, new Vector2(0.5f, 0.5f), new Vector2(0, -260), new Vector2(460, 125), () => OnRevive?.Invoke(true));
-            retry = UIKit.Button(over.transform, "PLAY AGAIN", Icon.Retry, Green, new Vector2(0.5f, 0.5f), new Vector2(0, -405), new Vector2(460, 125), () => OnRetry?.Invoke());
-            UIKit.Button(over.transform, "", Icon.Home, Purple, new Vector2(0.5f, 0.5f), new Vector2(-330, -405), new Vector2(110, 110), () => OnHome?.Invoke(), true);
+            // Rewarded buttons follow each portal's rules (every one shows the 🎬 clapperboard):
+            //  CrazyGames: the skip option (PLAY AGAIN) matches the reward buttons' size, font and
+            //              color; revive row on top, PLAY AGAIN below, x2 inside the card.
+            //  Poki: rewarded buttons are never green; PLAY AGAIN is the same size and sits above
+            //        the reward row, which also holds x2 COINS.
+            bool poki = Platform.RewardedButtonsDistinct;
+            var adColor = poki ? Orange : Green;
+            float topRow = -260f, bottomRow = -405f;
+            float retryY = poki ? topRow : bottomRow;
+            rewardRowY = poki ? bottomRow : topRow;
+            reviveAd = UIKit.Button(over.transform, "REVIVE", Icon.Clapper, adColor, new Vector2(0.5f, 0.5f), new Vector2(0, rewardRowY), new Vector2(460, 125), () => OnRevive?.Invoke(false));
+            reviveCoins = UIKit.Button(over.transform, "REVIVE 100", Icon.Coin, Green, new Vector2(0.5f, 0.5f), new Vector2(0, rewardRowY), new Vector2(460, 125), () => OnRevive?.Invoke(true));
+            doubleCoins = poki
+                ? UIKit.Button(over.transform, "x2 COINS", Icon.Clapper, Orange, new Vector2(0.5f, 0.5f), new Vector2(0, rewardRowY), new Vector2(460, 125), () => OnDoubleCoins?.Invoke())
+                : UIKit.Button(card, "x2", Icon.Clapper, Orange, new Vector2(0.5f, 0f), new Vector2(200, 72), new Vector2(200, 90), () => OnDoubleCoins?.Invoke());
+            retry = UIKit.Button(over.transform, "PLAY AGAIN", Icon.Retry, Green, new Vector2(0.5f, 0.5f), new Vector2(0, retryY), new Vector2(460, 125), () => OnRetry?.Invoke());
+            UIKit.Button(over.transform, "", Icon.Home, Purple, new Vector2(0.5f, 0.5f), new Vector2(-330, retryY), new Vector2(110, 110), () => OnHome?.Invoke(), true);
+        }
+
+        float rewardRowY;
+
+        void BuildPause()
+        {
+            pausePanel = Panel("Pause").gameObject;
+            var dim = Dim(pausePanel.transform);
+            dim.color = new Color(0.04f, 0.01f, 0.1f, 0.6f);
+            dim.raycastTarget = true;
+            UIKit.Label(pausePanel.transform, "PAUSED", 120, new Vector2(0.5f, 0.5f), new Vector2(0, 160));
+            UIKit.Button(pausePanel.transform, "RESUME", Icon.Play, Green, new Vector2(0.5f, 0.5f), new Vector2(0, -20), new Vector2(460, 130), () => OnResume?.Invoke()).Pulse = true;
+            UIKit.Button(pausePanel.transform, "MENU", Icon.Home, Purple, new Vector2(0.5f, 0.5f), new Vector2(0, -175), new Vector2(360, 110), () => OnPauseHome?.Invoke());
+            pausePanel.SetActive(false);
+        }
+
+        public void ShowPause(bool show)
+        {
+            pausePanel.SetActive(show);
+            pauseButton.gameObject.SetActive(!show && (hud.activeSelf || versusHud.activeSelf));
         }
 
         void BuildVersusOver()
@@ -227,7 +262,7 @@ namespace StackJump
                 rewardChecks.Add(check);
             }
             claim = UIKit.Button(c, "CLAIM", Icon.Coin, Green, new Vector2(0.5f, 0f), new Vector2(-150, 30), new Vector2(360, 120), () => OnClaim?.Invoke(false));
-            claimDouble = UIKit.Button(c, "x2", Icon.Video, Orange, new Vector2(0.5f, 0f), new Vector2(190, 30), new Vector2(260, 120), () => OnClaim?.Invoke(true));
+            claimDouble = UIKit.Button(c, "x2", Icon.Clapper, Orange, new Vector2(0.5f, 0f), new Vector2(190, 30), new Vector2(260, 120), () => OnClaim?.Invoke(true));
             claim.Pulse = true;
             rewardModal.SetActive(false);
         }
@@ -289,6 +324,7 @@ namespace StackJump
             hudGoal.text = dailyGoal > 0 ? "GOAL " + dailyGoal : "";
             SetScore(0, false);
             SetRunCoins(0);
+            pauseButton.gameObject.SetActive(captureCam == null);
         }
 
         public void SetRunCoins(int coins) => hudCoins.text = coins.ToString();
@@ -300,6 +336,7 @@ namespace StackJump
             SetVersusScore(0, 0);
             SetVersusScore(1, 0);
             hintT = 0f;
+            pauseButton.gameObject.SetActive(captureCam == null);
         }
 
         public void SetVersusScore(int player, int value) => (player == 0 ? p1Score : p2Score).text = value.ToString();
@@ -331,17 +368,26 @@ namespace StackJump
             }
             overScore.text = info.Score.ToString();
             overCoins.text = "+" + info.Coins;
-            doubleCoins.gameObject.SetActive(info.CanDouble);
             reviveAd.gameObject.SetActive(info.CanReviveAd);
             reviveCoins.gameObject.SetActive(info.CanReviveCoins);
+            // Poki keeps x2 COINS in the reward row; with a revive ad there it would be too crowded.
+            bool poki = Platform.RewardedButtonsDistinct;
+            doubleCoins.gameObject.SetActive(info.CanDouble && !(poki && info.CanReviveAd && info.CanReviveCoins));
             reviveCoins.Text.text = "REVIVE " + info.ReviveCost;
             reviveCoins.SetIcon(Icon.Coin, Gold);
-            // Side by side when both revive options are offered.
-            bool both = info.CanReviveAd && info.CanReviveCoins;
-            SetButtonX(reviveAd, both ? -240f : 0f);
-            SetButtonX(reviveCoins, both ? 240f : 0f);
+            LayoutRewardRow();
             retry.Pulse = !info.CanReviveAd && !info.CanReviveCoins;
             overT = 0f;
+        }
+
+        // Spreads the visible buttons of the reward row side by side.
+        void LayoutRewardRow()
+        {
+            var row = new List<GameButton>();
+            foreach (var b in new[] { reviveAd, reviveCoins, doubleCoins })
+                if (b.gameObject.activeSelf && b.transform.parent == over.transform) row.Add(b);
+            for (int i = 0; i < row.Count; i++)
+                SetButtonX(row[i], row.Count == 1 ? 0f : (i - (row.Count - 1) * 0.5f) * 480f);
         }
 
         static void SetButtonX(GameButton b, float x)
@@ -354,7 +400,7 @@ namespace StackJump
         {
             reviveAd.gameObject.SetActive(false);
             doubleCoins.gameObject.SetActive(false);
-            if (reviveCoins.gameObject.activeSelf) SetButtonX(reviveCoins, 0f);
+            LayoutRewardRow();
         }
 
         // First run: a pulsing hint until the player clears a block.
@@ -376,6 +422,7 @@ namespace StackJump
         {
             overCoins.text = "+" + coins;
             doubleCoins.gameObject.SetActive(false);
+            LayoutRewardRow();
         }
 
         public void ShowVersusResult(int winner, int s1, int s2)
@@ -416,6 +463,9 @@ namespace StackJump
             versusHud.SetActive(false);
             over.SetActive(false);
             versusOver.SetActive(false);
+            pausePanel.SetActive(false);
+            pauseButton.gameObject.SetActive(false);
+            tutorial.gameObject.SetActive(false);
         }
 
         // Trailer rendering: draw the UI through a camera (on the UI layer) so it lands in the

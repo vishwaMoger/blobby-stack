@@ -28,6 +28,8 @@ namespace StackJump
 
         public int Score, Streak, Coins;
         public bool Active, Out;
+        // No new block spawns while held (the tutorial run waits for the player's first tap).
+        public bool Hold;
         public Incoming Current { get; private set; }
         public float AutoLead = 0.1f;
 
@@ -119,7 +121,7 @@ namespace StackJump
         {
             if (Current == null)
             {
-                if (Active && !Out && Player.Grounded)
+                if (Active && !Out && Player.Grounded && !Hold)
                 {
                     spawnTimer -= dt;
                     if (spawnTimer <= 0f) Spawn();

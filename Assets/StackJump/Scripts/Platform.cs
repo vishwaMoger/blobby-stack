@@ -1,13 +1,21 @@
 using System;
 using System.Collections;
+#if SJ_POKI
+// Poki build: PokiUnitySDK (Assets/PokiSDK) is compiled in, the CrazyGames SDK is not.
+#elif SJ_GD
+using System.Runtime.InteropServices;
+#else
 using CrazyGames;
+#endif
 using UnityEngine;
 
 namespace StackJump
 {
-    // Thin wrapper over the CrazyGames SDK. Falls back to PlayerPrefs and no-op ads when the SDK
-    // isn't available, and never lets a missing SDK callback (ad blockers, network errors) leave
-    // the game stuck: init and ads all have timeouts.
+    // The one place that talks to the web portal's SDK: CrazyGames by default, Poki when built with
+    // SJ_POKI (StackJumpSetup.BuildPoki), GameDistribution with SJ_GD (BuildGameDistribution).
+    // The rest of the game only sees this API.
+    // Missing SDK callbacks (ad blockers, network errors) can never leave the game stuck: init and
+    // ads all have timeouts. Saves fall back to PlayerPrefs.
     public static class Platform
     {
         const float InitTimeout = 8f;
@@ -16,6 +24,8 @@ namespace StackJump
 
         static bool ready;
         static bool inGameplay;
+        // Poki ignores ad requests until gameplayStart has been sent once, and never calls back.
+        static bool gameplayReported;
         static bool sdkMuted;
         static float lastMidgame = -999f;
         static Runner runner;
@@ -24,21 +34,57 @@ namespace StackJump
         public static bool AdPlaying { get; private set; }
         public static bool UserMuted { get; private set; }
 
-        // Ads are compiled in only for the Full Launch build (SJ_ADS). Basic Launch has ads
+#if SJ_POKI
+        public const bool IsPoki = true, IsGameDistribution = false;
+        // Poki serves ads on every build; Poki alone decides how often they actually show.
+        public const bool AdsEnabled = true;
+#elif SJ_GD
+        public const bool IsPoki = false, IsGameDistribution = true;
+        // GameDistribution rate-limits ads itself; the game may ask at every natural break.
+        public const bool AdsEnabled = true;
+#else
+        public const bool IsPoki = false, IsGameDistribution = false;
+        // Ads are compiled in only for the CrazyGames Full Launch build (SJ_ADS). Basic Launch has ads
         // disabled by CrazyGames, and rewarded buttons that do nothing get a game rejected.
 #if SJ_ADS
         public const bool AdsEnabled = true;
 #else
         public const bool AdsEnabled = false;
 #endif
+#endif
+        public const bool IsCrazyGames = !IsPoki && !IsGameDistribution;
         static bool adblock, adsBroken;
 
         // Whether a rewarded button should be shown at all: never with ad blockers, never after
         // an ad has failed this session, and never when ads aren't part of this build.
-        public static bool RewardedAvailable => AdsEnabled && ready && !adblock && !adsBroken;
+        public static bool RewardedAvailable => AdsEnabled && ready && !adblock && !adsBroken
+            && (gameplayReported || !IsPoki)
+            && (gdRewardedReady || !IsGameDistribution);
 
-        // Hosts the timeout coroutines; unaffected by Time.timeScale.
-        class Runner : MonoBehaviour { }
+        // ---------- Portal rules the game adapts to ----------
+
+        // Poki and GameDistribution: signal every natural break and let the portal decide; no
+        // frequency caps of our own. CrazyGames: keep midgames sparse, never next to a rewarded offer.
+        public static bool CommercialBreakEveryRestart => !IsCrazyGames;
+        // CrazyGames: the ad revive is offered at most every few runs. Poki forbids such cooldowns.
+        public static bool RewardedCooldowns => IsCrazyGames;
+        // Poki: no custom "ad not available" messages. GameDistribution's SDK fails silently too.
+        public static bool ShowAdErrors => IsCrazyGames;
+        // Poki: rewarded buttons can't be green and the normal button goes beside or above them.
+        // CrazyGames: the skip button must match the reward button's size, font and color.
+        public static bool RewardedButtonsDistinct => !IsCrazyGames;
+        // Escape exits fullscreen on CrazyGames, so it only pauses elsewhere.
+        public static bool EscapePauses => !IsCrazyGames;
+        // GameDistribution: ads only on user input, so new players start from the menu's PLAY
+        // (which carries the pre-roll) instead of being dropped straight into a run.
+        public static bool AutoStartFirstRun => !IsGameDistribution;
+
+        // Hosts the timeout coroutines (unaffected by Time.timeScale) and receives
+        // GameDistribution bridge messages (SendMessage("PlatformRunner", "GdEvent", name)).
+        class Runner : MonoBehaviour
+        {
+            void GdEvent(string name) => OnGdEvent(name);
+        }
 
         static Runner GetRunner()
         {
@@ -54,6 +100,14 @@ namespace StackJump
             action();
         }
 
+        static void Safe(Action a)
+        {
+            try { a(); }
+            catch (Exception e) { Debug.LogWarning("[Platform] SDK call failed: " + e.Message); }
+        }
+
+        static Action initDone;
+
         public static void Init(Action onReady)
         {
             bool done = false;
@@ -63,18 +117,44 @@ namespace StackJump
                 done = true;
                 onReady?.Invoke();
             }
+            initDone = Finish;
 
-            if (!CrazySDK.IsAvailable)
-            {
-                Finish();
-                return;
-            }
             // If the SDK script is blocked or slow, start the game offline instead of hanging.
             GetRunner().StartCoroutine(After(InitTimeout, () =>
             {
                 if (!done) Debug.LogWarning("[Platform] SDK init timed out; continuing without it.");
                 Finish();
             }));
+
+#if SJ_POKI
+            try
+            {
+                var poki = PokiUnitySDK.Instance;
+                poki.sdkInitializedCallback = () =>
+                {
+                    ready = true;
+                    adblock = poki.adblocked;
+                    Safe(() => poki.gameLoadingFinished());
+                    // The mobile Poki pill sits top-left; keep it below the coin and best-score badges.
+                    Safe(() => poki.movePill(0, 96));
+                    Finish();
+                };
+                poki.init();
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[Platform] Poki init failed: " + e.Message);
+                Finish();
+            }
+#elif SJ_GD
+            // SDK_READY (or a load failure) arrives through OnGdEvent; queued events flush here.
+            Safe(SJ_GD_Init);
+#else
+            if (!CrazySDK.IsAvailable)
+            {
+                Finish();
+                return;
+            }
             try
             {
                 CrazySDK.Init(() =>
@@ -94,43 +174,70 @@ namespace StackJump
                 Debug.LogWarning("[Platform] SDK init failed: " + e.Message);
                 Finish();
             }
-        }
-
-        static void Safe(Action a)
-        {
-            try { a(); }
-            catch (Exception e) { Debug.LogWarning("[Platform] SDK call failed: " + e.Message); }
+#endif
         }
 
         public static void GameplayStart()
         {
             if (inGameplay) return;
             inGameplay = true;
-            if (ready) Safe(() => CrazySDK.Game.GameplayStart());
+            if (!ready) return;
+            gameplayReported = true;
+#if SJ_POKI
+            Safe(() => PokiUnitySDK.Instance.gameplayStart());
+#elif !SJ_GD
+            Safe(() => CrazySDK.Game.GameplayStart());
+#endif
         }
 
         public static void GameplayStop()
         {
             if (!inGameplay) return;
             inGameplay = false;
-            if (ready) Safe(() => CrazySDK.Game.GameplayStop());
+            if (!ready) return;
+#if SJ_POKI
+            Safe(() => PokiUnitySDK.Instance.gameplayStop());
+#elif !SJ_GD
+            Safe(() => CrazySDK.Game.GameplayStop());
+#endif
         }
 
         public static void HappyTime()
         {
+#if !SJ_POKI && !SJ_GD
             if (ready) Safe(() => CrazySDK.Game.HappyTime());
+#endif
         }
 
-        // Between runs. CrazyGames also rate-limits, but keep them sparse for retention.
+        // GameDistribution wants a pre-roll before the player starts, triggered by their input.
+        static bool prerollDone;
+        public static bool PrerollPending => IsGameDistribution && !prerollDone && AdsEnabled && ready && !adblock;
+
+        public static void Preroll(Action done)
+        {
+            prerollDone = true;
+            Midgame(done);
+        }
+
+        // A natural break before returning to gameplay.
         public static void Midgame(Action done)
         {
-            if (!AdsEnabled || !ready || adblock || Time.realtimeSinceStartup - lastMidgame < 90f)
+            prerollDone = true;
+            if (!AdsEnabled || !ready || adblock || (IsPoki && !gameplayReported))
             {
                 done?.Invoke();
                 return;
             }
-            lastMidgame = Time.realtimeSinceStartup;
-            RequestAd(CrazyAdType.Midgame, _ => done?.Invoke());
+            if (IsCrazyGames)
+            {
+                if (Time.realtimeSinceStartup - lastMidgame < 90f)
+                {
+                    done?.Invoke();
+                    return;
+                }
+                lastMidgame = Time.realtimeSinceStartup;
+            }
+            RequestAd(false, _ => done?.Invoke());
         }
 
         // Callers only offer rewarded ads when RewardedAvailable; an error never grants the reward.
@@ -141,14 +248,16 @@ namespace StackJump
                 done?.Invoke(false);
                 return;
             }
-            RequestAd(CrazyAdType.Rewarded, ok =>
+            RequestAd(true, ok =>
             {
-                if (!ok) adsBroken = true; // hide rewarded buttons for the rest of the session
+                // On CrazyGames a failure means ads are broken this session. On Poki and
+                // GameDistribution "no reward" also covers the player closing the ad early.
+                if (!ok && IsCrazyGames) adsBroken = true;
                 done?.Invoke(ok);
             });
         }
 
-        static void RequestAd(CrazyAdType type, Action<bool> done)
+        static void RequestAd(bool rewarded, Action<bool> done)
         {
             bool wasInGameplay = inGameplay;
             bool started = false, finished = false;
@@ -162,11 +271,57 @@ namespace StackJump
             }
 
             var r = GetRunner();
-            r.StartCoroutine(After(AdStartTimeout, () => { if (!started) Finish(false); }));
             r.StartCoroutine(After(AdMaxDuration, () => Finish(false)));
+#if SJ_POKI
+            // Poki: mute and block input before the break; there is no separate "ad started" callback.
+            started = true;
+            SetAdPause(true);
             try
             {
-                CrazySDK.Ad.RequestAd(type,
+                var poki = PokiUnitySDK.Instance;
+                if (rewarded)
+                {
+                    poki.rewardedBreakCallBack = withReward => Finish(withReward);
+                    poki.rewardedBreak();
+                }
+                else
+                {
+                    poki.commercialBreakCallBack = () => Finish(true);
+                    poki.commercialBreak();
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[Platform] Ad request failed: " + e.Message);
+                Finish(false);
+            }
+#elif SJ_GD
+            // The showAd promise settles when the ad process ends (or is skipped by the SDK's
+            // frequency limit); a reward counts only if SDK_REWARDED_WATCH_COMPLETE came first.
+            started = true;
+            SetAdPause(true);
+            gdRewardWatched = false;
+            gdPending = ok =>
+            {
+                if (rewarded)
+                {
+                    ok &= gdRewardWatched;
+                    gdRewardedReady = false;
+                    Safe(SJ_GD_PreloadRewarded);
+                }
+                Finish(ok);
+            };
+            try { SJ_GD_ShowAd(rewarded ? 1 : 0); }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[Platform] Ad request failed: " + e.Message);
+                CompleteGdAd(false);
+            }
+#else
+            r.StartCoroutine(After(AdStartTimeout, () => { if (!started) Finish(false); }));
+            try
+            {
+                CrazySDK.Ad.RequestAd(rewarded ? CrazyAdType.Rewarded : CrazyAdType.Midgame,
                     () =>
                     {
                         if (finished) return;
@@ -180,6 +335,74 @@ namespace StackJump
             {
                 Debug.LogWarning("[Platform] Ad request failed: " + e.Message);
                 Finish(false);
+            }
+#endif
+        }
+
+        // ---------- GameDistribution bridge ----------
+
+        static Action<bool> gdPending;
+        static bool gdRewardWatched, gdRewardedReady, gdSdkPaused;
+
+#if SJ_GD
+        [DllImport("__Internal")] static extern void SJ_GD_Init();
+        [DllImport("__Internal")] static extern void SJ_GD_ShowAd(int rewarded);
+        [DllImport("__Internal")] static extern void SJ_GD_PreloadRewarded();
+#else
+        static void SJ_GD_PreloadRewarded() { }
+#endif
+
+        static void CompleteGdAd(bool ok)
+        {
+            var pending = gdPending;
+            gdPending = null;
+            pending?.Invoke(ok);
+        }
+
+        static void OnGdEvent(string name)
+        {
+            switch (name)
+            {
+                case "SDK_READY":
+                    ready = true;
+                    Safe(SJ_GD_PreloadRewarded);
+                    initDone?.Invoke();
+                    break;
+                case "SDK_ERROR":
+                case "SJ_SDK_FAILED":
+                    initDone?.Invoke();
+                    break;
+                // The SDK can also pause on its own (e.g. an ad it starts itself): mute and freeze
+                // until it says the game may continue.
+                case "SDK_GAME_PAUSE":
+                    if (!AdPlaying)
+                    {
+                        gdSdkPaused = true;
+                        SetAdPause(true);
+                    }
+                    break;
+                case "SDK_GAME_START":
+                    if (gdSdkPaused && gdPending == null)
+                    {
+                        gdSdkPaused = false;
+                        SetAdPause(false);
+                    }
+                    break;
+                case "SDK_REWARDED_WATCH_COMPLETE":
+                    gdRewardWatched = true;
+                    break;
+                case "SJ_AD_DONE":
+                    CompleteGdAd(true);
+                    break;
+                case "SJ_AD_FAILED":
+                    CompleteGdAd(false);
+                    break;
+                case "SJ_REWARDED_READY":
+                    gdRewardedReady = true;
+                    break;
+                case "SJ_REWARDED_NONE":
+                    gdRewardedReady = false;
+                    break;
             }
         }
 
@@ -206,34 +429,49 @@ namespace StackJump
 
         static void ApplyAudio() => AudioListener.volume = UserMuted || sdkMuted || AdPlaying ? 0f : 1f;
 
-        // ---------- Save data (CrazyGames cloud save when available) ----------
+        // ---------- Save data ----------
+        // CrazyGames: cloud save through the SDK when available, mirrored locally.
+        // Poki and GameDistribution: local only (PlayerPrefs, which also works in incognito for the session).
 
         // The data source is fixed at the first read. If the SDK was late (init timed out), the
         // session keeps using the local copy; it must never write that copy over the cloud save.
         static bool? cloudData;
 
-        static bool UseCloud => cloudData ??= ready;
+        static bool UseCloud => cloudData ??= ready && IsCrazyGames;
 
         public static int GetInt(string key, int fallback = 0)
         {
+#if !SJ_POKI && !SJ_GD
             if (UseCloud)
             {
                 try { return CrazySDK.Data.GetInt(key, fallback); }
                 catch (Exception e) { Debug.LogWarning("[Platform] Data read failed: " + e.Message); }
             }
-            return PlayerPrefs.GetInt(key, fallback);
+#endif
+            try { return PlayerPrefs.GetInt(key, fallback); }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[Platform] Local read failed: " + e.Message);
+                return fallback;
+            }
         }
 
         public static void SetInt(string key, int value)
         {
+#if !SJ_POKI && !SJ_GD
             if (UseCloud)
             {
                 try { CrazySDK.Data.SetInt(key, value); }
                 catch (Exception e) { Debug.LogWarning("[Platform] Data write failed: " + e.Message); }
             }
+#endif
             // Always keep a local copy as a fallback for sessions where the SDK is unavailable.
-            PlayerPrefs.SetInt(key, value);
-            PlayerPrefs.Save();
+            try
+            {
+                PlayerPrefs.SetInt(key, value);
+                PlayerPrefs.Save();
+            }
+            catch (Exception e) { Debug.LogWarning("[Platform] Local write failed: " + e.Message); }
         }
     }
 }

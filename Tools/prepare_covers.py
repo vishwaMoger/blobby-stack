@@ -15,6 +15,8 @@ COVERS = os.path.join(ROOT, "Submission", "covers")
 
 # Image-generator watermark glyph in the landscape art's top-left corner (source pixel coordinates).
 LANDSCAPE_MARKS = [(16, 8, 70, 62)]
+# The same kind of glyph on the asteroid at the square art's left edge.
+SQUARE_MARKS = [(12, 260, 54, 302)]
 
 
 def paint_out(im, box, iterations=60):
@@ -59,6 +61,8 @@ def main(square_path, portrait_path, landscape_path, set_name):
 
     for box in LANDSCAPE_MARKS:
         landscape = paint_out(landscape, box)
+    for box in SQUARE_MARKS:
+        square = paint_out(square, box)
 
     save(square, (800, 800), f"{set_name}-square-800x800.png")
     save(portrait, (800, 1200), f"{set_name}-portrait-800x1200.png")

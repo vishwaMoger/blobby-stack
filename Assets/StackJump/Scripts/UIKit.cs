@@ -6,7 +6,7 @@ using UnityEngine.UI;
 
 namespace StackJump
 {
-    public enum Icon { Play, Left, Right, Sound, Mute, Home, Retry, Trophy, Video, Lock, Coin, Gift, Users, Check }
+    public enum Icon { Play, Left, Right, Sound, Mute, Home, Retry, Trophy, Video, Lock, Coin, Gift, Users, Check, Pause, Clapper }
 
     // Procedural sprites, icons and chunky game buttons for the code-built UI.
     public static class UIKit
@@ -245,6 +245,22 @@ namespace StackJump
                         float b = Mathf.Min(Mathf.Sqrt((x - 0.38f) * (x - 0.38f) + (y - 0.38f) * (y - 0.38f)) - 0.26f,
                             SdRoundBox(x - 0.38f, y + 0.42f, 0.36f, 0.3f, 0.28f));
                         return Mathf.Min(a, b);
+                    };
+                case Icon.Pause:
+                    return (x, y) => Mathf.Min(SdBox(x, y, -0.55f, -0.65f, -0.15f, 0.65f), SdBox(x, y, 0.15f, -0.65f, 0.55f, 0.65f));
+                case Icon.Clapper:
+                    // Clapperboard (the "watch an ad" 🎬 symbol): striped hinged top over a box.
+                    return (x, y) =>
+                    {
+                        float body = SdBox(x, y, -0.72f, -0.72f, 0.72f, 0.12f);
+                        float a = 14f * Mathf.Deg2Rad;
+                        float rx = (x + 0.72f) * Mathf.Cos(a) - (y - 0.22f) * Mathf.Sin(a) - 0.72f;
+                        float ry = (x + 0.72f) * Mathf.Sin(a) + (y - 0.22f) * Mathf.Cos(a) + 0.22f;
+                        float slate = SdBox(rx, ry, -0.72f, 0.24f, 0.72f, 0.56f);
+                        // Diagonal gaps: a positive value pushes those pixels outside the shape.
+                        float slateCut = Mathf.Repeat((rx - ry) * 2.6f, 1f) < 0.42f ? 0.03f : -1f;
+                        float barCut = y > -0.12f && Mathf.Repeat((x + y) * 2.6f, 1f) < 0.42f ? 0.03f : -1f;
+                        return Mathf.Min(Mathf.Max(body, barCut), Mathf.Max(slate, slateCut));
                     };
                 case Icon.Check:
                     return (x, y) => Mathf.Min(SdSegment(x, y, -0.6f, 0.02f, -0.15f, -0.48f, 0.15f), SdSegment(x, y, -0.15f, -0.48f, 0.65f, 0.5f, 0.15f));

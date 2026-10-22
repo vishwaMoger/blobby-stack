@@ -1,0 +1,21 @@
+{
+    "name": "CrazyGames.SDK.Editor",
+    "rootNamespace": "CrazyGames",
+    "references": [
+        "CrazyGames.SDK"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "!SJ_POKI",
+        "!SJ_GD"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

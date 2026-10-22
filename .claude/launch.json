@@ -6,6 +6,18 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", "Builds/WebGL-dev"],
       "port": 8765
+    },
+    {
+      "name": "poki",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8766", "--bind", "127.0.0.1", "--directory", "Builds/Poki"],
+      "port": 8766
+    },
+    {
+      "name": "gamedistribution",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8767", "--bind", "127.0.0.1", "--directory", "Builds/GameDistribution"],
+      "port": 8767
     }
   ]
 }

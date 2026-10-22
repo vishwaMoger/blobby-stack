@@ -1,0 +1,16 @@
+{
+    "name": "PokiSDK",
+    "rootNamespace": "",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "SJ_POKI"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

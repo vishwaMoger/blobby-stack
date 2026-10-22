@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
@@ -14,7 +14,7 @@ namespace StackJump
     [DefaultExecutionOrder(100)]
     public class GameManager : MonoBehaviour
     {
-        enum State { Boot, Menu, Playing, Ending, Result, Busy }
+        enum State { Boot, Menu, Playing, Paused, Ending, Result, Busy }
         enum Mode { Classic, Daily, Versus }
 
         const int BlocksPerWorld = 20;
@@ -35,7 +35,7 @@ namespace StackJump
         State state = State.Boot;
         Mode mode;
         int charIndex, world, startWorld, runs, runCoins, lastAdReviveRun = -99;
-        bool revived, dailyJustDone, tutorial, rewardPrompted;
+        bool revived, dailyJustDone, tutorial, rewardPrompted, awaitingFirstInput;
         bool rewardedOffered, rewardedWatched; // on the current game-over screen
         float stateTime;
 
@@ -110,15 +110,15 @@ namespace StackJump
                 return;
             }
 #endif
-            // CrazyGames Full Launch: new players land directly in gameplay. Returning players get
-            // the menu; the daily reward pops up once they come back to it after a run.
+            // New players land directly in gameplay (on GameDistribution: after the menu's PLAY, which
+            // carries the pre-roll). Returning players get the menu; the daily reward pops up once
+            // they come back to it after a run.
             bool firstTime = Save.Best == 0 && Save.Coins == 0 && Save.RewardDay == 0;
             EnterMenu();
             if (firstTime && !autoplay)
             {
-                StartRun(Mode.Classic);
                 tutorial = true;
-                ui.ShowTutorial(true);
+                if (Platform.AutoStartFirstRun) StartRun(Mode.Classic);
             }
         }
 
@@ -173,6 +173,9 @@ namespace StackJump
             ui.OnDoubleCoins = DoubleCoins;
             ui.OnHome = () => { sfx.Click(); EnterMenu(); };
             ui.OnSound = ToggleSound;
+            ui.OnPause = Pause;
+            ui.OnResume = Resume;
+            ui.OnPauseHome = QuitToMenu;
             ui.OnGift = () =>
             {
                 sfx.Click();
@@ -326,6 +329,11 @@ namespace StackJump
         void StartRun(Mode m)
         {
             if (state != State.Menu && state != State.Result && state != State.Busy) return;
+            if (Platform.PrerollPending)
+            {
+                Platform.Preroll(() => StartRun(m));
+                return;
+            }
             mode = m;
             charIndex = PlayableChar;
             int seed = -1;
@@ -346,7 +354,9 @@ namespace StackJump
             stateTime = 0f;
             ui.ShowHud(m == Mode.Daily ? Daily.ChallengeBest : Save.Best, m == Mode.Daily ? Daily.Goal : 0);
             ui.Banner(m == Mode.Daily ? "DAILY TOWER" : Theme.Name);
-            Platform.GameplayStart();
+            // The hint stays until the first block is cleared, including across retries.
+            ui.ShowTutorial(tutorial);
+            awaitingFirstInput = true; // gameplayStart fires on the player's first tap (Poki rule)
         }
 
         void StartVersus() => StartVersus(CountdownTime);
@@ -354,6 +364,11 @@ namespace StackJump
         void StartVersus(float countdown)
         {
             if (state != State.Menu && state != State.Result && state != State.Busy) return;
+            if (Platform.PrerollPending)
+            {
+                Platform.Preroll(() => StartVersus(countdown));
+                return;
+            }
             mode = Mode.Versus;
             world = startWorld;
             scenery.SetWorld(Theme, false);
@@ -373,7 +388,7 @@ namespace StackJump
             countdownShown = countdown > 0.5f ? -1 : 4;
             ui.ShowVersusHud();
             if (countdownShown == 4) ui.Banner("GO!", 200, 1f);
-            Platform.GameplayStart();
+            awaitingFirstInput = true;
         }
 
         void Retry()
@@ -382,9 +397,11 @@ namespace StackJump
             sfx.Click();
             state = State.Busy;
             var m = mode;
-            // No midgame ad right after a "watch to keep playing" offer, or after a rewarded ad
-            // on this screen (CrazyGames: don't pair or chain ads).
-            if (runs >= 2 && !rewardedOffered && !rewardedWatched) Platform.Midgame(() => StartRun(m));
+            // Poki: a commercial break before every restart; Poki decides whether an ad shows.
+            // CrazyGames: no midgame right after a "watch to keep playing" offer, or after a
+            // rewarded ad on this screen (don't pair or chain ads).
+            if (Platform.CommercialBreakEveryRestart || (runs >= 2 && !rewardedOffered && !rewardedWatched))
+                Platform.Midgame(() => StartRun(m));
             else StartRun(m);
         }
 
@@ -393,8 +410,46 @@ namespace StackJump
             if (state != State.Result) return;
             sfx.Click();
             state = State.Busy;
-            if (runs >= 2) Platform.Midgame(StartVersus);
+            if (Platform.CommercialBreakEveryRestart || runs >= 2) Platform.Midgame(StartVersus);
             else StartVersus();
+        }
+
+        // ---------- Pause ----------
+
+        // Pause button, P, and Escape on Poki (Escape exits fullscreen on CrazyGames).
+        void Pause()
+        {
+            if (state != State.Playing) return;
+            sfx.Click();
+            state = State.Paused;
+            Time.timeScale = 0f;
+            Platform.GameplayStop();
+            ui.ShowPause(true);
+        }
+
+        void Resume()
+        {
+            if (state != State.Paused) return;
+            sfx.Click();
+            ui.ShowPause(false);
+            state = State.Busy;
+            void Go()
+            {
+                Time.timeScale = 1f;
+                state = State.Playing;
+                if (!awaitingFirstInput) Platform.GameplayStart();
+            }
+            // Poki event order for unpausing: gameplayStop -> commercialBreak -> gameplayStart.
+            if (Platform.CommercialBreakEveryRestart) Platform.Midgame(Go);
+            else Go();
+        }
+
+        void QuitToMenu()
+        {
+            sfx.Click();
+            Time.timeScale = 1f;
+            ui.ShowPause(false);
+            EnterMenu();
         }
 
         void Revive(bool withCoins)
@@ -416,7 +471,7 @@ namespace StackJump
                     // No reward on an ad error; the ad buttons hide for the rest of the session.
                     state = State.Result;
                     ui.HideRewardedButtons();
-                    ui.Banner("AD NOT AVAILABLE");
+                    if (Platform.ShowAdErrors) ui.Banner("AD NOT AVAILABLE");
                     return;
                 }
                 lastAdReviveRun = runs;
@@ -453,7 +508,7 @@ namespace StackJump
                 if (!ok)
                 {
                     ui.HideRewardedButtons();
-                    ui.Banner("AD NOT AVAILABLE");
+                    if (Platform.ShowAdErrors) ui.Banner("AD NOT AVAILABLE");
                     return;
                 }
                 rewardedWatched = true;
@@ -480,7 +535,7 @@ namespace StackJump
                 Score = solo.Score,
                 Coins = runCoins,
                 CanDouble = runCoins > 0 && Platform.RewardedAvailable,
-                CanReviveAd = goodRun && Platform.RewardedAvailable && runs - lastAdReviveRun >= 3,
+                CanReviveAd = goodRun && Platform.RewardedAvailable && (!Platform.RewardedCooldowns || runs - lastAdReviveRun >= 3),
                 CanReviveCoins = goodRun && Save.Coins >= ReviveCost,
                 ReviveCost = ReviveCost,
                 Daily = mode == Mode.Daily,
@@ -637,8 +692,26 @@ namespace StackJump
                 return;
             }
 
+            if (state == State.Paused)
+            {
+                if (PausePressed()) Resume();
+                return;
+            }
+
             ReadInput(out bool any, out bool left, out bool right, out bool released);
             if (autoplay && !trailer) AutoMenu(ref released);
+
+            if (state == State.Playing && PausePressed())
+            {
+                Pause();
+                return;
+            }
+            // gameplayStart fires on the player's first input of a run, not when the run is set up.
+            if (state == State.Playing && awaitingFirstInput && (any || left || right || autoplay))
+            {
+                awaitingFirstInput = false;
+                Platform.GameplayStart();
+            }
 
             switch (state)
             {
@@ -682,7 +755,11 @@ namespace StackJump
                 p1.Tick(dt, playing && left, autoplay);
                 p2.Tick(dt, playing && right, autoplay);
             }
-            else solo.Tick(dt, playing && any, autoplay);
+            else
+            {
+                solo.Hold = tutorial && awaitingFirstInput;
+                solo.Tick(dt, playing && any, autoplay);
+            }
         }
 
         void ReadInput(out bool any, out bool left, out bool right, out bool released)
@@ -860,6 +937,12 @@ namespace StackJump
         // ---------- Input helpers ----------
 
         static bool PointerReleased() => Pointer.current != null && Pointer.current.press.wasReleasedThisFrame;
+
+        static bool PausePressed()
+        {
+            var k = Keyboard.current;
+            return k != null && (k.pKey.wasPressedThisFrame || (Platform.EscapePauses && k.escapeKey.wasPressedThisFrame));
+        }
 
         static bool KeyReleased()
         {
