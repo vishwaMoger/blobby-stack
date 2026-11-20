@@ -20,13 +20,29 @@ the only imported art is the cover set.
 - Local 2 Player race on one keyboard or one screen
 - Pause (button, Esc or P), desktop and mobile, portrait and landscape
 
-## Media
+## Trailer
 
-| | |
-|---|---|
-| Covers | [`Submission/covers/`](Submission/covers) (the `art-*` set is the one used on the portals) |
-| Gameplay trailers | [landscape](Submission/trailer/trailer-landscape.mp4), [portrait](Submission/trailer/trailer-portrait.mp4) |
-| GameDistribution images | [`Submission/covers/gamedistribution/`](Submission/covers/gamedistribution) |
+![Gameplay trailer](docs/trailer.gif)
+
+Full quality: [landscape](Submission/trailer/trailer-landscape.mp4) and [portrait](Submission/trailer/trailer-portrait.mp4).
+
+## Covers
+
+The `art-*` set is the one used on the portals.
+
+| Landscape (1920×1080) | Portrait (800×1200) | Square (800×800) |
+|---|---|---|
+| <img src="Submission/covers/art-landscape-1920x1080.png" width="420"> | <img src="Submission/covers/art-portrait-800x1200.png" width="200"> | <img src="Submission/covers/art-square-800x800.png" width="260"> |
+
+## Worlds
+
+| Cosmos | Sunset Farm | Neon City | Beanstalk |
+|---|---|---|---|
+| <img src="Submission/covers/cosmos-landscape-1920x1080.png" width="240"> | <img src="Submission/covers/farm-landscape-1920x1080.png" width="240"> | <img src="Submission/covers/neon-landscape-1920x1080.png" width="240"> | <img src="Submission/covers/beanstalk-landscape-1920x1080.png" width="240"> |
+
+All cover files, including the sets for each portal, are in [`Submission/covers/`](Submission/covers),
+[`Submission/covers/gamedistribution/`](Submission/covers/gamedistribution) and
+[`Submission/itch/`](Submission/itch).
 
 ## Requirements
 
