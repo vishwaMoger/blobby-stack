@@ -2,6 +2,8 @@
 
 ![Blobby Stack](Submission/covers/art-landscape-1920x1080.png)
 
+[**Play free in your browser on itch.io**](https://bluelolipop1.itch.io/blobby-stack)
+
 A cute one-tap stacking game for the web. Blocks slide in from the side: tap at just the right moment to hop
 over them and land on top. Nail the timing for a PERFECT landing and chain bonus points, but jump too early or
 too late and you get bumped off the tower.
