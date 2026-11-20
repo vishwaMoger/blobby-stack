@@ -49,6 +49,7 @@ $unity = "C:\Program Files\Unity\Hub\Editor\6000.4.5f1\Editor\Unity.exe"
 | `BuildReleaseFull` | `Builds/WebGL-full` | CrazyGames Full Launch (ads) |
 | `BuildPoki` | `Builds/Poki` | Poki |
 | `BuildGameDistribution` | `Builds/GameDistribution` | GameDistribution |
+| `BuildItch` | `Builds/Itch` | itch.io (no SDK, no ads); page text and images in [`Submission/itch/`](Submission/itch) |
 | `BuildDev` | `Builds/WebGL-dev` | Local testing: uncompressed, with ads |
 
 Serve a build locally with any static server, for example

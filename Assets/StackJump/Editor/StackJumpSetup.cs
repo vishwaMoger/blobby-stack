@@ -16,6 +16,7 @@ namespace StackJump.EditorTools
     //   -executeMethod StackJump.EditorTools.StackJumpSetup.BuildRelease
     //   -executeMethod StackJump.EditorTools.StackJumpSetup.BuildPoki
     //   -executeMethod StackJump.EditorTools.StackJumpSetup.BuildGameDistribution
+    //   -executeMethod StackJump.EditorTools.StackJumpSetup.BuildItch
     public static class StackJumpSetup
     {
         const string Root = "Assets/StackJump";
@@ -268,7 +269,10 @@ namespace StackJump.EditorTools
         // GameDistribution control panel comes from SJ_GD_GAME_ID or Submission/gamedistribution/game-id.txt.
         public static void BuildGameDistribution() => BuildForPortal(Portal.GameDistribution, "Builds/GameDistribution");
 
-        enum Portal { CrazyGames, Poki, GameDistribution }
+        // itch.io build: no portal SDK and no ads; saves stay in the browser's local storage.
+        public static void BuildItch() => BuildForPortal(Portal.Itch, "Builds/Itch");
+
+        enum Portal { CrazyGames, Poki, GameDistribution, Itch }
 
         // Other portals: the CrazyGames SDK (whose site-lock crashes the game outside CrazyGames) is
         // compiled out, its jslib and Resources left out of the build.
@@ -326,6 +330,7 @@ namespace StackJump.EditorTools
             SetPlugin(CrazyJslib, portal == Portal.CrazyGames);
             SetPlugin(PokiJslib, portal == Portal.Poki);
             SetPlugin(GdJslib, portal == Portal.GameDistribution);
+            // (Portal.Itch enables none of them.)
         }
 
         static void SetPlugin(string path, bool enabled)
@@ -340,12 +345,13 @@ namespace StackJump.EditorTools
         // Sets our build symbols while keeping any others (e.g. ones the CrazyGames tools add).
         static void SetDefines(bool ads, Portal portal)
         {
-            var ours = new[] { "SJ_ADS", "SJ_POKI", "SJ_GD" };
+            var ours = new[] { "SJ_ADS", "SJ_POKI", "SJ_GD", "SJ_ITCH" };
             var current = PlayerSettings.GetScriptingDefineSymbols(NamedBuildTarget.WebGL)
                 .Split(';').Where(d => d.Length > 0 && !ours.Contains(d)).ToList();
             if (ads) current.Add("SJ_ADS");
             if (portal == Portal.Poki) current.Add("SJ_POKI");
             if (portal == Portal.GameDistribution) current.Add("SJ_GD");
+            if (portal == Portal.Itch) current.Add("SJ_ITCH");
             PlayerSettings.SetScriptingDefineSymbols(NamedBuildTarget.WebGL, string.Join(";", current));
         }
 
@@ -356,7 +362,8 @@ namespace StackJump.EditorTools
             PlayerSettings.WebGL.exceptionSupport = exceptions;
             if (portal != Portal.CrazyGames)
             {
-                PlayerSettings.WebGL.template = portal == Portal.Poki ? "PROJECT:poki-template" : "PROJECT:gamedistribution";
+                PlayerSettings.WebGL.template = portal == Portal.Poki ? "PROJECT:poki-template"
+                    : portal == Portal.GameDistribution ? "PROJECT:gamedistribution" : "PROJECT:FullWindow";
                 PlayerSettings.WebGL.decompressionFallback = true;
             }
             SetPortalPlugins(portal);

@@ -4,6 +4,8 @@ using System.Collections;
 // Poki build: PokiUnitySDK (Assets/PokiSDK) is compiled in, the CrazyGames SDK is not.
 #elif SJ_GD
 using System.Runtime.InteropServices;
+#elif SJ_ITCH
+// itch.io build: no portal SDK at all; no ads, local saves only.
 #else
 using CrazyGames;
 #endif
@@ -42,6 +44,9 @@ namespace StackJump
         public const bool IsPoki = false, IsGameDistribution = true;
         // GameDistribution rate-limits ads itself; the game may ask at every natural break.
         public const bool AdsEnabled = true;
+#elif SJ_ITCH
+        public const bool IsPoki = false, IsGameDistribution = false;
+        public const bool AdsEnabled = false;
 #else
         public const bool IsPoki = false, IsGameDistribution = false;
         // Ads are compiled in only for the CrazyGames Full Launch build (SJ_ADS). Basic Launch has ads
@@ -52,7 +57,11 @@ namespace StackJump
         public const bool AdsEnabled = false;
 #endif
 #endif
+        #if SJ_ITCH
+        public const bool IsCrazyGames = false;
+#else
         public const bool IsCrazyGames = !IsPoki && !IsGameDistribution;
+#endif
         static bool adblock, adsBroken;
 
         // Whether a rewarded button should be shown at all: never with ad blockers, never after
@@ -149,6 +158,8 @@ namespace StackJump
 #elif SJ_GD
             // SDK_READY (or a load failure) arrives through OnGdEvent; queued events flush here.
             Safe(SJ_GD_Init);
+#elif SJ_ITCH
+            Finish();
 #else
             if (!CrazySDK.IsAvailable)
             {
@@ -185,7 +196,7 @@ namespace StackJump
             gameplayReported = true;
 #if SJ_POKI
             Safe(() => PokiUnitySDK.Instance.gameplayStart());
-#elif !SJ_GD
+#elif !SJ_GD && !SJ_ITCH
             Safe(() => CrazySDK.Game.GameplayStart());
 #endif
         }
@@ -197,14 +208,14 @@ namespace StackJump
             if (!ready) return;
 #if SJ_POKI
             Safe(() => PokiUnitySDK.Instance.gameplayStop());
-#elif !SJ_GD
+#elif !SJ_GD && !SJ_ITCH
             Safe(() => CrazySDK.Game.GameplayStop());
 #endif
         }
 
         public static void HappyTime()
         {
-#if !SJ_POKI && !SJ_GD
+#if !SJ_POKI && !SJ_GD && !SJ_ITCH
             if (ready) Safe(() => CrazySDK.Game.HappyTime());
 #endif
         }
@@ -317,6 +328,9 @@ namespace StackJump
                 Debug.LogWarning("[Platform] Ad request failed: " + e.Message);
                 CompleteGdAd(false);
             }
+#elif SJ_ITCH
+            // Ads are never enabled on itch.io, so nothing requests one; fail safe if something does.
+            Finish(false);
 #else
             r.StartCoroutine(After(AdStartTimeout, () => { if (!started) Finish(false); }));
             try
@@ -441,7 +455,7 @@ namespace StackJump
 
         public static int GetInt(string key, int fallback = 0)
         {
-#if !SJ_POKI && !SJ_GD
+#if !SJ_POKI && !SJ_GD && !SJ_ITCH
             if (UseCloud)
             {
                 try { return CrazySDK.Data.GetInt(key, fallback); }
@@ -458,7 +472,7 @@ namespace StackJump
 
         public static void SetInt(string key, int value)
         {
-#if !SJ_POKI && !SJ_GD
+#if !SJ_POKI && !SJ_GD && !SJ_ITCH
             if (UseCloud)
             {
                 try { CrazySDK.Data.SetInt(key, value); }

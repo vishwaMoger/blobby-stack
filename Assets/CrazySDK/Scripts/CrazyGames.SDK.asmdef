@@ -12,7 +12,8 @@
     "autoReferenced": true,
     "defineConstraints": [
         "!SJ_POKI",
-        "!SJ_GD"
+        "!SJ_GD",
+        "!SJ_ITCH"
     ],
     "versionDefines": [],
     "noEngineReferences": false
