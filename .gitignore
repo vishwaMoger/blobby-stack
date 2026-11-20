@@ -44,3 +44,6 @@ crashlytics-build.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# Local editor/tool settings
+.claude/
